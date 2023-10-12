@@ -541,6 +541,8 @@ impl<'a> FunctionContext<'a> {
     /// the initial value before returning the allocate instruction.
     fn codegen_let(&mut self, let_expr: &ast::Let) -> Values {
         let mut values = self.codegen_expression(&let_expr.expression);
+        //println!["let_expr={:?}", &let_expr];
+        //println!["let values={:?}", values];
 
         if let_expr.mutable {
             values = values.map(|value| {
@@ -550,6 +552,53 @@ impl<'a> FunctionContext<'a> {
         }
 
         self.define(let_expr.id, values);
+
+        // debug mode only:
+        // use print() to log variables after assignment
+        if let Some((location,definition)) = get_locdef(&let_expr.expression) {
+            let fstr = format!["{}={{{}}}", let_expr.name, let_expr.name];
+            let fstr_len = fstr.len() as u64;
+            let fmt_value = self.codegen_literal(
+                &ast::Literal::FmtStr(
+                    fstr,
+                    1,
+                    Box::new(ast::Expression::Tuple(vec![
+                        ast::Expression::Ident(ast::Ident {
+                            location: None,
+                            definition,
+                            mutable: false,
+                            name: let_expr.name.clone(),
+                            typ: ast::Type::Field,
+                        }),
+                    ]))
+                )
+            );
+            let function = self.codegen_non_tuple_expression(&ast::Expression::Ident(ast::Ident {
+                location: None,
+                definition: ast::Definition::Function(ast::FuncId(1)),
+                mutable: false,
+                name: "println".to_string(),
+                typ: ast::Type::Function(
+                    vec![ ast::Type::FmtString(
+                        fstr_len,
+                        Box::new(ast::Type::Tuple(vec![ast::Type::Field])))
+                    ],
+                    Box::new(ast::Type::Unit),
+                    Box::new(ast::Type::Unit),
+                ),
+            }));
+            let mut args = vec![];
+            for node in fmt_value.flatten().into_iter() {
+                args.push(node.eval(self));
+            }
+            self.insert_call(
+                function,
+                args,
+                &ast::Type::Unit, // return_type
+                location.clone() // location
+            );
+        }
+
         Self::unit_value()
     }
 
@@ -591,5 +640,19 @@ impl<'a> FunctionContext<'a> {
     fn codegen_semi(&mut self, expr: &Expression) -> Values {
         self.codegen_expression(expr);
         Self::unit_value()
+    }
+}
+
+fn get_locdef(expr: &ast::Expression) -> Option<(Location,ast::Definition)> {
+    match expr {
+        ast::Expression::Binary(ast::Binary { lhs, .. }) => {
+            match **lhs {
+                ast::Expression::Ident(ref id) => {
+                    id.location.and_then(|loc| { Some((loc, id.definition.clone())) })
+                },
+                _ => None,
+            }
+        },
+        _ => None,
     }
 }

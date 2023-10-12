@@ -1,3 +1,5 @@
+use dep::std;
+
 // Tests a very simple program.
 // 
 // The features being tested are:
@@ -12,5 +14,7 @@ fn main(x : Field, y : Field, z : Field) -> pub Field {
     let b = a - y; // 6 - 4 = 2
     let c = b * z; // 2 * 5 = 10
     let d = c / a; // 10 / 6 (This uses field inversion, so we test it by multiplying by `a`)
+    std::println(f"a: {a}, b: {b}, c: {c}, d: {d}"); // required so dep::std doesn't get tree-shaken away
+    // and there are some other hard-coded things that make the previous line required for now
     d * a
 }

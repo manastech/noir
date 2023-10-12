@@ -1,4 +1,5 @@
-use acvm::acir::circuit::OpcodeLocation;
+use acvm::acir::circuit::{OpcodeLocation, opcodes::Opcode};
+use acvm::acir::circuit::brillig::Brillig;
 use acvm::pwg::{ACVMStatus, ErrorLocation, OpcodeResolutionError, ACVM};
 use acvm::BlackBoxFunctionSolver;
 use acvm::{acir::circuit::Circuit, acir::native_types::WitnessMap};
@@ -6,8 +7,9 @@ use acvm::{acir::circuit::Circuit, acir::native_types::WitnessMap};
 use nargo::artifacts::debug::DebugArtifact;
 use nargo::errors::ExecutionError;
 use nargo::NargoError;
-
 use nargo::ops::ForeignCallExecutor;
+
+use noirc_frontend::{parse_program, ast};
 
 use thiserror::Error;
 
@@ -110,6 +112,45 @@ impl<'backend, B: BlackBoxFunctionSolver> DebugContext<'backend, B> {
         }
     }
 
+    fn show_witness_map(&self) {
+        let acvm = self.acvm.as_ref().unwrap();
+        let wm = acvm.witness_map();
+        println!("wm={:?}", wm);
+
+        let ip = self.acvm.as_ref().unwrap().instruction_pointer();
+        let opcode = acvm.opcodes().get(ip).unwrap();
+        let location = OpcodeLocation::Acir(ip);
+        Self::show_source_code_location(&location, &self.debug_artifact);
+
+        println!["opcode={:?}", opcode];
+        /*
+        match opcode {
+            Opcode::Brillig(Brillig { inputs, outputs, .. }) => {
+                //println!("{:?}", opcode);
+                println!("Brillig");
+                println!("  inputs: {:?}", inputs);
+                println!("  outputs: {:?}", outputs);
+            },
+            Opcode::Arithmetic(expr) => {
+                println!("Arithmetic expr={:?}", expr);
+            },
+            Opcode::BlackBoxFuncCall(bbfn) => {
+                println!("BlackBoxFuncCall {:?}", bbfn);
+            },
+            Opcode::Directive(directive) => {
+                println!("Directive {:?}", directive);
+            },
+            Opcode::MemoryOp { block_id: acvm::acir::circuit::opcodes::BlockId(block_id), op, predicate } => {
+                println!("MemoryOp block_id={:?} op={:?} predicate={:?}", block_id, op, predicate);
+            },
+            Opcode::MemoryInit { block_id: acvm::acir::circuit::opcodes::BlockId(block_id), init, } => {
+                println!("MemoryInit block_id={:?} init={:?}", block_id, init);
+            },
+            _ => {},
+        }
+        */
+    }
+
     fn cont(&mut self) -> Result<SolveResult, DebuggingError> {
         loop {
             match self.step_opcode()? {
@@ -153,9 +194,6 @@ pub fn debug_circuit<B: BlackBoxFunctionSolver>(
         debug_artifact,
         show_output,
     });
-    let ref_step = &context;
-    let ref_cont = &context;
-
     let solved = RefCell::new(false);
 
     context.borrow().show_current_vm_status();
@@ -171,23 +209,42 @@ pub fn debug_circuit<B: BlackBoxFunctionSolver>(
     let mut repl = Repl::builder()
         .add(
             "s",
-            command! {
-                "step to the next opcode",
-                () => || {
-                    let result = ref_step.borrow_mut().step_opcode().into_critical()?;
-                    ref_step.borrow().show_current_vm_status();
-                    handle_result(result)
+            {
+                let c = &context;
+                command! {
+                    "step to the next opcode",
+                    () => || {
+                        let result = c.borrow_mut().step_opcode().into_critical()?;
+                        c.borrow().show_current_vm_status();
+                        handle_result(result)
+                    }
                 }
             },
         )
         .add(
             "c",
-            command! {
-                "continue execution until the end of the program",
-                () => || {
-                    println!("(Continuing execution...)");
-                    let result = ref_cont.borrow_mut().cont().into_critical()?;
-                    handle_result(result)
+            {
+                let c = &context;
+                command! {
+                    "continue execution until the end of the program",
+                    () => || {
+                        println!("(Continuing execution...)");
+                        let result = c.borrow_mut().cont().into_critical()?;
+                        handle_result(result)
+                    }
+                }
+            },
+        )
+        .add(
+            "wm",
+            {
+                let c = &context;
+                command! {
+                    "show witness map",
+                    () => || {
+                        c.borrow_mut().show_witness_map();
+                        Ok(CommandStatus::Done)
+                    }
                 }
             },
         )
