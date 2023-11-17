@@ -12,6 +12,9 @@ it('calls echo', async () => {
 
 it('successfully passes solver to debugger', async function () {
   const solver: WasmBlackBoxFunctionSolver = await createBlackBoxSolver();
-  const result = debugWithSolver(solver);
-  expect(result).to.equal("hi");
+
+  const { bytecode } = await import('./pedersen');
+
+  const result = debugWithSolver(solver, bytecode);
+  expect(result).to.equal(4);
 });
