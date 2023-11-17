@@ -1250,6 +1250,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "debugger_wasm"
+version = "0.19.2"
+dependencies = [
+ "acvm",
+ "barretenberg_blackbox_solver",
+ "build-data",
+ "console_error_panic_hook",
+ "getrandom",
+ "gloo-utils",
+ "iter-extended",
+ "js-sys",
+ "noir_debugger",
+ "serde",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "wasm-bindgen-test",
+]
+
+[[package]]
 name = "debugid"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

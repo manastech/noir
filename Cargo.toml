@@ -16,6 +16,7 @@ members = [
     "tooling/bb_abstraction_leaks",
     "tooling/lsp",
     "tooling/debugger",
+    "tooling/debugger_wasm",
     "tooling/nargo",
     "tooling/nargo_fmt",
     "tooling/nargo_cli",

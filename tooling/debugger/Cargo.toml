@@ -15,5 +15,6 @@ noirc_printable_type.workspace = true
 noirc_errors.workspace = true
 thiserror.workspace = true
 codespan-reporting.workspace = true
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 easy-repl = "0.2.1"
 owo-colors = "3"

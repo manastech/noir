@@ -3446,6 +3446,19 @@ __metadata:
   languageName: unknown
   linkType: soft
 
+"@noir-lang/debugger@workspace:tooling/debugger_wasm":
+  version: 0.0.0-use.local
+  resolution: "@noir-lang/debugger@workspace:tooling/debugger_wasm"
+  dependencies:
+    "@esm-bundle/chai": ^4.3.4-fix.0
+    "@web/dev-server-esbuild": ^0.3.6
+    "@web/test-runner": ^0.15.3
+    "@web/test-runner-playwright": ^0.10.0
+    eslint: ^8.50.0
+    mocha: ^10.2.0
+  languageName: unknown
+  linkType: soft
+
 "@noir-lang/noir_codegen@workspace:tooling/noir_codegen":
   version: 0.0.0-use.local
   resolution: "@noir-lang/noir_codegen@workspace:tooling/noir_codegen"
