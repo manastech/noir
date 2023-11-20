@@ -21,7 +21,9 @@ it('successfully passes debug artifact to debugger', async function () {
   const result = debugWithSolver(
     solver,
     bytecode,
-    JSON.stringify(CounterJson),
+    JSON.stringify({
+      debug_symbols: CounterJson.debug.debugSymbols,
+    }),
     initialWitnessMap
   );
 

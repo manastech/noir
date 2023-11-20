@@ -30,6 +30,30 @@ use js_witness_map::JsWitnessMap;
 #[allow(deprecated)]
 use barretenberg_blackbox_solver::BarretenbergSolver;
 
+use nargo::artifacts::debug::DebugArtifact;
+
+use std::io::Read;
+use base64::{decode, DecodeError};
+use flate2::read::ZlibDecoder;
+
+fn decode_base64_symbols(base64_symbols: Vec<String>) -> Result<Vec<String>, JsDebuggerError> {
+    let mut decoded_symbols = Vec::with_capacity(base64_symbols.len());
+
+    for base64_symbol in base64_symbols {
+        let gzipped_symbol = decode(&base64_symbol).map_err(|_| JsDebuggerError::new("Not a base64 string".to_string()))?;
+        let mut gz = ZlibDecoder::new(&gzipped_symbol[..]);
+        let mut inflated_symbol = Vec::new();
+        gz.read_to_end(&mut inflated_symbol).map_err(|e| JsDebuggerError::new(format!("Failed to inflate symbol: {}", e)))?;
+
+        let decoded_symbol = String::from_utf8(inflated_symbol).map_err(|_| JsDebuggerError::new("Decoded text is not valid UTF-8".to_string()))?;
+
+        decoded_symbols.push(decoded_symbol);
+    }
+
+    Ok(decoded_symbols)
+}
+
+
 /**
  * Refactor WasmBlackBoxFunctionSolver related stuff to re-use (copied from acvm-js)
  */
@@ -72,35 +96,47 @@ pub fn debug_with_solver(
     circuit: Vec<u8>,
     artifact: &str,
     initial_witness: JsWitnessMap,
-) -> Result<JsWitnessMap, JsDebuggerError> {
+) -> Result<JsString, JsDebuggerError> {
     console_error_panic_hook::set_once();
 
     let circuit: Circuit =
         Circuit::deserialize_circuit(&circuit).expect("Failed to deserialize circuit");
 
-    // TODO: there's some overlap between this and
-    // the compiler/wasm NoirCompilationArtifacts.
-    // For now we're sending ContractArtifact's as defined
-    // in Aztec's monorrepo foundation ContractArtifact interface
-    // but maybe the correct thing to do is to convert that into
-    // a NoirCompilationArtifacts type as defined in 
-    // noir_artifact.ts inside the noir_compiler folder inside
-    // the Aztec js monorrepo.
-    // Let's see what plays better with the debugger.
-    // In principle, ContractArtifact's may have more than is necessary
-    // for the debugger. So probably we should stick to NoirCompilationArtifacts
+
     #[derive(Serialize, Deserialize)]
     struct Artifact {
-        name: String
+        debug_symbols: Vec<String>
     }
 
     let parsed_artifact: Artifact = serde_json::from_str(artifact).map_err(|e| e.to_string())?;
+    let base64_debug_symbols: Vec<String> = parsed_artifact.debug_symbols;
+    let debug_symbols: Vec<String> = decode_base64_symbols(base64_debug_symbols)?;
 
-    println!("{:?}", parsed_artifact.name);
 
-    // Witness de-serialization
+    // let debug_artifact: DebugArtifact = serde_json::from_str(artifact).map_err(|e| e.to_string())?;
+    // from: contract-interface-gen
+    // debugSymbols: sortedFunctions.map(fn => {
+    //     const originalIndex = originalFunctions.indexOf(fn);
+    //     return Buffer.from(
+    //       deflate(
+    //         JSON.stringify(
+    //           debug.debug_symbols[originalIndex]
+    //         )
+    //       )
+    //     ).toString('base64');
+    //   }),
+
+
+    // Witness deserialization
     let witness: WitnessMap = initial_witness.into();
 
+    // let debug_artifact = DebugArtifact {
+    //     debug_symbols: vec![compiled_program.debug.clone()],
+    //     file_map: compiled_program.file_map.clone(),
+    //     warnings: compiled_program.warnings.clone(),
+    // };
 
-    Ok(witness.into())
+    // Ok(witness.into())
+
+    Ok(debug_symbols[0].clone().into())
 }

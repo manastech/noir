@@ -14,6 +14,8 @@ crate-type = ["cdylib"]
 [dependencies]
 acvm.workspace = true
 barretenberg_blackbox_solver.workspace = true
+base64.workspace = true
+nargo.workspace = true
 noir_debugger.workspace = true
 iter-extended.workspace = true
 wasm-bindgen.workspace = true
@@ -23,7 +25,7 @@ serde_json.workspace = true
 js-sys.workspace = true
 console_error_panic_hook.workspace = true
 gloo-utils.workspace = true
-
+flate2 = "1.0.24"
 
 # This is an unused dependency, we are adding it
 # so that we can enable the js feature in getrandom.
