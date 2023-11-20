@@ -1263,6 +1263,7 @@ dependencies = [
  "js-sys",
  "noir_debugger",
  "serde",
+ "serde_json",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "wasm-bindgen-test",
