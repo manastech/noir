@@ -17,6 +17,7 @@ barretenberg_blackbox_solver.workspace = true
 base64.workspace = true
 nargo.workspace = true
 noir_debugger.workspace = true
+noirc_errors.workspace = true
 iter-extended.workspace = true
 wasm-bindgen.workspace = true
 wasm-bindgen-futures.workspace = true

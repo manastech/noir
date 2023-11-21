@@ -1265,6 +1265,7 @@ dependencies = [
  "js-sys",
  "nargo",
  "noir_debugger",
+ "noirc_errors",
  "serde",
  "serde_json",
  "wasm-bindgen",

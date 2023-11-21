@@ -36,6 +36,8 @@ use std::io::Read;
 use base64::{decode, DecodeError};
 use flate2::read::ZlibDecoder;
 
+use noirc_errors::{debug_info::DebugInfo, Location};
+
 fn decode_base64_symbols(base64_symbols: Vec<String>) -> Result<Vec<String>, JsDebuggerError> {
     let mut decoded_symbols = Vec::with_capacity(base64_symbols.len());
 
@@ -111,7 +113,12 @@ pub fn debug_with_solver(
     let parsed_artifact: Artifact = serde_json::from_str(artifact).map_err(|e| e.to_string())?;
     let base64_debug_symbols: Vec<String> = parsed_artifact.debug_symbols;
     let debug_symbols: Vec<String> = decode_base64_symbols(base64_debug_symbols)?;
+    let debug_infos: Result<Vec<DebugInfo>, serde_json::Error> = debug_symbols.into_iter().map(|s| serde_json::from_str(&s)).collect();
 
+    match debug_infos {
+        Ok(debug_infos) => Ok("Successfully deserialized debug info".into()),
+        Err(e) => Ok(format!("Failed to convert: {}", e).into())
+    }
 
     // let debug_artifact: DebugArtifact = serde_json::from_str(artifact).map_err(|e| e.to_string())?;
     // from: contract-interface-gen
@@ -128,7 +135,7 @@ pub fn debug_with_solver(
 
 
     // Witness deserialization
-    let witness: WitnessMap = initial_witness.into();
+    // let witness: WitnessMap = initial_witness.into();
 
     // let debug_artifact = DebugArtifact {
     //     debug_symbols: vec![compiled_program.debug.clone()],
@@ -138,5 +145,5 @@ pub fn debug_with_solver(
 
     // Ok(witness.into())
 
-    Ok(debug_symbols[0].clone().into())
+    // Ok(debug_symbols[0].clone().into())
 }
