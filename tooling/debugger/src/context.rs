@@ -13,14 +13,14 @@ use nargo::NargoError;
 use std::collections::{hash_set::Iter, HashSet};
 
 #[derive(Debug)]
-pub(super) enum DebugCommandResult {
+pub enum DebugCommandResult {
     Done,
     Ok,
     BreakpointReached(OpcodeLocation),
     Error(NargoError),
 }
 
-pub(super) struct DebugContext<'a, B: BlackBoxFunctionSolver> {
+pub struct DebugContext<'a, B: BlackBoxFunctionSolver> {
     acvm: ACVM<'a, B>,
     brillig_solver: Option<BrilligSolver<'a, B>>,
     foreign_call_executor: ForeignCallExecutor,
@@ -30,7 +30,7 @@ pub(super) struct DebugContext<'a, B: BlackBoxFunctionSolver> {
 }
 
 impl<'a, B: BlackBoxFunctionSolver> DebugContext<'a, B> {
-    pub(super) fn new(
+    pub fn new(
         blackbox_solver: &'a B,
         circuit: &'a Circuit,
         debug_artifact: &'a DebugArtifact,

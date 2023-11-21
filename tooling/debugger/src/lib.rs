@@ -1,4 +1,4 @@
-mod context;
+pub mod context;
 
 #[cfg(not(target_arch = "wasm32"))]
 mod repl;

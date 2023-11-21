@@ -1254,6 +1254,7 @@ name = "debugger_wasm"
 version = "0.19.2"
 dependencies = [
  "acvm",
+ "acvm_blackbox_solver",
  "barretenberg_blackbox_solver",
  "base64",
  "build-data",

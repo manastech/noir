@@ -16,7 +16,10 @@ use acvm::{
 // See Cargo.toml for explanation.
 use getrandom as _;
 
-use noir_debugger::debug_echo;
+use noir_debugger::{
+    debug_echo,
+    context::{DebugCommandResult, DebugContext},
+};
 
 use errors::JsDebuggerError;
 use js_sys::{Error, JsString};
@@ -44,6 +47,10 @@ use noirc_errors::{debug_info::DebugInfo, Location};
 use fm::{FileId, FileManager, PathString};
 
 use noirc_driver::{CompiledContract, CompiledProgram, DebugFile};
+
+use acvm::acir::{BlackBoxFunc, FieldElement};
+use acvm_blackbox_solver::{BlackBoxFunctionSolver, BlackBoxResolutionError};
+
 
 fn decode_base64_symbols(base64_symbols: Vec<String>) -> Result<Vec<String>, JsDebuggerError> {
     let mut decoded_symbols = Vec::with_capacity(base64_symbols.len());
@@ -82,6 +89,43 @@ impl WasmBlackBoxFunctionSolver {
 #[cfg(target_arch = "wasm32")]
 pub async fn create_black_box_solver() -> WasmBlackBoxFunctionSolver {
     WasmBlackBoxFunctionSolver::initialize().await
+}
+
+#[allow(deprecated)]
+impl BlackBoxFunctionSolver for WasmBlackBoxFunctionSolver {
+    fn schnorr_verify(
+        &self,
+        public_key_x: &FieldElement,
+        public_key_y: &FieldElement,
+        signature: &[u8],
+        message: &[u8],
+    ) -> Result<bool, BlackBoxResolutionError> {
+        self.0.schnorr_verify(public_key_x, public_key_y, signature, message)
+    }
+
+    fn pedersen_commitment(
+        &self,
+        inputs: &[FieldElement],
+        domain_separator: u32,
+    ) -> Result<(FieldElement, FieldElement), BlackBoxResolutionError> {
+        self.0.pedersen_commitment(inputs, domain_separator)
+    }
+
+    fn pedersen_hash(
+        &self,
+        inputs: &[FieldElement],
+        domain_separator: u32,
+    ) -> Result<FieldElement, BlackBoxResolutionError> {
+        self.0.pedersen_hash(inputs, domain_separator)
+    }
+
+    fn fixed_base_scalar_mul(
+        &self,
+        low: &FieldElement,
+        high: &FieldElement,
+    ) -> Result<(FieldElement, FieldElement), BlackBoxResolutionError> {
+        self.0.fixed_base_scalar_mul(low, high)
+    }
 }
 /******/
 
@@ -126,8 +170,6 @@ pub fn debug_with_solver(
             .map(|s| serde_json::from_str(&s)).collect();
     let debug_infos: Vec<DebugInfo> = parsed_debug_infos.map_err(|e| format!("Failed parsing debug symbols {}", e))?;
 
-    
-
     // Witness deserialization
     let witness: WitnessMap = initial_witness.into();
 
@@ -136,6 +178,8 @@ pub fn debug_with_solver(
         file_map: parsed_artifact.file_map.clone(),
         warnings: vec![], // Contract artifacts aren't persisting warnings
     };
+
+    let context = DebugContext::new(solver, &circuit, &debug_artifact, witness.clone());
 
     Ok("Nothing broke".into())
 }
