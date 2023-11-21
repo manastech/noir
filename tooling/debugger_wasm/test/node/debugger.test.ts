@@ -23,6 +23,7 @@ it('successfully passes debug artifact to debugger', async function () {
     bytecode,
     JSON.stringify({
       debug_symbols: CounterJson.debug.debugSymbols,
+      file_map: CounterJson.debug.fileMap,
     }),
     initialWitnessMap
   );

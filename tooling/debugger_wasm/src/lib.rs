@@ -32,11 +32,18 @@ use barretenberg_blackbox_solver::BarretenbergSolver;
 
 use nargo::artifacts::debug::DebugArtifact;
 
-use std::io::Read;
+use std::{
+    io::Read,
+    collections::BTreeMap,
+};
 use base64::{decode, DecodeError};
 use flate2::read::ZlibDecoder;
 
 use noirc_errors::{debug_info::DebugInfo, Location};
+
+use fm::{FileId, FileManager, PathString};
+
+use noirc_driver::{CompiledContract, CompiledProgram, DebugFile};
 
 fn decode_base64_symbols(base64_symbols: Vec<String>) -> Result<Vec<String>, JsDebuggerError> {
     let mut decoded_symbols = Vec::with_capacity(base64_symbols.len());
@@ -107,10 +114,11 @@ pub fn debug_with_solver(
 
     #[derive(Serialize, Deserialize)]
     struct Artifact {
-        debug_symbols: Vec<String>
+        debug_symbols: Vec<String>,
+        file_map: BTreeMap<FileId, DebugFile>
     }
 
-    let parsed_artifact: Artifact = serde_json::from_str(artifact).map_err(|e| e.to_string())?;
+    let parsed_artifact: Artifact = serde_json::from_str(artifact).map_err(|e| format!("Failed parsing artifact {}", e))?;
     let base64_debug_symbols: Vec<String> = parsed_artifact.debug_symbols;
     let debug_symbols: Vec<String> = decode_base64_symbols(base64_debug_symbols)?;
     let debug_infos: Result<Vec<DebugInfo>, serde_json::Error> = debug_symbols.into_iter().map(|s| serde_json::from_str(&s)).collect();
@@ -119,21 +127,6 @@ pub fn debug_with_solver(
         Ok(debug_infos) => Ok("Successfully deserialized debug info".into()),
         Err(e) => Ok(format!("Failed to convert: {}", e).into())
     }
-
-    // let debug_artifact: DebugArtifact = serde_json::from_str(artifact).map_err(|e| e.to_string())?;
-    // from: contract-interface-gen
-    // debugSymbols: sortedFunctions.map(fn => {
-    //     const originalIndex = originalFunctions.indexOf(fn);
-    //     return Buffer.from(
-    //       deflate(
-    //         JSON.stringify(
-    //           debug.debug_symbols[originalIndex]
-    //         )
-    //       )
-    //     ).toString('base64');
-    //   }),
-
-
     // Witness deserialization
     // let witness: WitnessMap = initial_witness.into();
 
