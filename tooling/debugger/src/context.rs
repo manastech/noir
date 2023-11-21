@@ -181,7 +181,7 @@ impl<'a, B: BlackBoxFunctionSolver> DebugContext<'a, B> {
         }
     }
 
-    pub(super) fn cont(&mut self) -> DebugCommandResult {
+    pub fn cont(&mut self) -> DebugCommandResult {
         loop {
             let result = self.step_into_opcode();
             if !matches!(result, DebugCommandResult::Ok) {
@@ -232,7 +232,7 @@ impl<'a, B: BlackBoxFunctionSolver> DebugContext<'a, B> {
         self.breakpoints.iter()
     }
 
-    pub(super) fn is_solved(&self) -> bool {
+    pub fn is_solved(&self) -> bool {
         matches!(self.acvm.get_status(), ACVMStatus::Solved)
     }
 

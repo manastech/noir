@@ -179,7 +179,13 @@ pub fn debug_with_solver(
         warnings: vec![], // Contract artifacts aren't persisting warnings
     };
 
-    let context = DebugContext::new(solver, &circuit, &debug_artifact, witness.clone());
+    let mut context = DebugContext::new(solver, &circuit, &debug_artifact, witness.clone());
+    context.cont();
 
-    Ok("Nothing broke".into())
+    if context.is_solved() {
+        let solved_witness = context.finalize();
+        Ok("Witness solved!".into())
+    } else {
+        Ok("Witness NOT solved ;(!".into())
+    }
 }
