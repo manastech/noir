@@ -121,22 +121,21 @@ pub fn debug_with_solver(
     let parsed_artifact: Artifact = serde_json::from_str(artifact).map_err(|e| format!("Failed parsing artifact {}", e))?;
     let base64_debug_symbols: Vec<String> = parsed_artifact.debug_symbols;
     let debug_symbols: Vec<String> = decode_base64_symbols(base64_debug_symbols)?;
-    let debug_infos: Result<Vec<DebugInfo>, serde_json::Error> = debug_symbols.into_iter().map(|s| serde_json::from_str(&s)).collect();
+    let parsed_debug_infos: Result<Vec<DebugInfo>, serde_json::Error> = 
+        debug_symbols.into_iter()
+            .map(|s| serde_json::from_str(&s)).collect();
+    let debug_infos: Vec<DebugInfo> = parsed_debug_infos.map_err(|e| format!("Failed parsing debug symbols {}", e))?;
 
-    match debug_infos {
-        Ok(debug_infos) => Ok("Successfully deserialized debug info".into()),
-        Err(e) => Ok(format!("Failed to convert: {}", e).into())
-    }
+    
+
     // Witness deserialization
-    // let witness: WitnessMap = initial_witness.into();
+    let witness: WitnessMap = initial_witness.into();
 
-    // let debug_artifact = DebugArtifact {
-    //     debug_symbols: vec![compiled_program.debug.clone()],
-    //     file_map: compiled_program.file_map.clone(),
-    //     warnings: compiled_program.warnings.clone(),
-    // };
+    let debug_artifact = DebugArtifact {
+        debug_symbols: debug_infos.clone(),
+        file_map: parsed_artifact.file_map.clone(),
+        warnings: vec![], // Contract artifacts aren't persisting warnings
+    };
 
-    // Ok(witness.into())
-
-    // Ok(debug_symbols[0].clone().into())
+    Ok("Nothing broke".into())
 }
