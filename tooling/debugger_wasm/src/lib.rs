@@ -49,8 +49,10 @@ use fm::{FileId, FileManager, PathString};
 
 use noirc_driver::{CompiledContract, CompiledProgram, DebugFile};
 
-use acvm::acir::{BlackBoxFunc, FieldElement};
-use acvm_blackbox_solver::{BlackBoxFunctionSolver, BlackBoxResolutionError};
+use acvm::{
+    acir::{BlackBoxFunc, FieldElement},
+    BlackBoxFunctionSolver
+};
 
 use crate::{
     foreign_call::{resolve_brillig, ForeignCallHandler},

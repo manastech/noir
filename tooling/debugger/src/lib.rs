@@ -1,3 +1,15 @@
+use acvm::{
+    acir::{
+        circuit::Circuit,
+        native_types::WitnessMap,
+    },
+    BlackBoxFunctionSolver,
+};
+use nargo::{
+    artifacts::debug::DebugArtifact,
+    NargoError,
+};
+
 pub mod context;
 
 #[cfg(not(target_arch = "wasm32"))]
