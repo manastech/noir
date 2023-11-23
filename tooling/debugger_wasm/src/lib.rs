@@ -10,8 +10,12 @@ use acvm::{
     acir::{
         circuit::Circuit,
         native_types::WitnessMap,
+        BlackBoxFunc,
+        FieldElement,
     },
     pwg::{ACVMStatus, ErrorLocation, OpcodeResolutionError, ACVM},
+    BlackBoxFunctionSolver,
+    BlackBoxResolutionError,
 };
 
 // See Cargo.toml for explanation.
@@ -34,7 +38,10 @@ use js_witness_map::JsWitnessMap;
 #[allow(deprecated)]
 use barretenberg_blackbox_solver::BarretenbergSolver;
 
-use nargo::artifacts::debug::DebugArtifact;
+use nargo::{
+    artifacts::debug::DebugArtifact,
+    ops::{DefaultForeignCallExecutor, ForeignCallExecutor},
+};
 
 use std::{
     io::Read,
@@ -48,11 +55,6 @@ use noirc_errors::{debug_info::DebugInfo, Location};
 use fm::{FileId, FileManager, PathString};
 
 use noirc_driver::{CompiledContract, CompiledProgram, DebugFile};
-
-use acvm::{
-    acir::{BlackBoxFunc, FieldElement},
-    BlackBoxFunctionSolver
-};
 
 use crate::{
     foreign_call::{resolve_brillig, ForeignCallHandler},
@@ -186,7 +188,8 @@ pub fn debug_with_solver(
         warnings: vec![], // Contract artifacts aren't persisting warnings
     };
 
-    let mut context = DebugContext::new_with_foreign_call_executor(solver, &circuit, &debug_artifact, witness.clone(), foreign_call_handler);
+    let mut foreign_call_executor = DefaultForeignCallExecutor::new(true);
+    let mut context = DebugContext::new(solver, &circuit, &debug_artifact, witness.clone(), Box::new(DefaultForeignCallExecutor::new(true)));
     context.cont();
 
     if context.is_solved() {

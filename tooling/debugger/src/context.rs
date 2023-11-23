@@ -8,7 +8,7 @@ use acvm::{BlackBoxFunctionSolver, FieldElement};
 
 use nargo::artifacts::debug::DebugArtifact;
 use nargo::errors::{ExecutionError, Location};
-use nargo::ops::{DefaultForeignCallExecutor, ForeignCallExecutor};
+use nargo::ops::ForeignCallExecutor;
 use nargo::NargoError;
 
 use std::collections::{hash_set::Iter, HashSet};
@@ -24,7 +24,7 @@ pub enum DebugCommandResult {
 pub struct DebugContext<'a, B: BlackBoxFunctionSolver> {
     acvm: ACVM<'a, B>,
     brillig_solver: Option<BrilligSolver<'a, B>>,
-    foreign_call_executor: DefaultForeignCallExecutor,
+    foreign_call_executor: Box<dyn ForeignCallExecutor + 'a>,
     debug_artifact: &'a DebugArtifact,
     breakpoints: HashSet<OpcodeLocation>,
 }
@@ -35,22 +35,7 @@ impl<'a, B: BlackBoxFunctionSolver> DebugContext<'a, B> {
         circuit: &'a Circuit,
         debug_artifact: &'a DebugArtifact,
         initial_witness: WitnessMap,
-    ) -> Self {
-        Self {
-            acvm: ACVM::new(blackbox_solver, &circuit.opcodes, initial_witness),
-            brillig_solver: None,
-            foreign_call_executor: DefaultForeignCallExecutor::new(true),
-            debug_artifact,
-            breakpoints: HashSet::new(),
-        }
-    }
-
-    pub fn new_with_foreign_call_executor(
-        blackbox_solver: &'a B,
-        circuit: &'a Circuit,
-        debug_artifact: &'a DebugArtifact,
-        initial_witness: WitnessMap,
-        foreign_call_executor: DefaultForeignCallExecutor,
+        foreign_call_executor: Box<dyn ForeignCallExecutor + 'a>,
     ) -> Self {
         Self {
             acvm: ACVM::new(blackbox_solver, &circuit.opcodes, initial_witness),
@@ -386,6 +371,8 @@ fn test_resolve_foreign_calls_stepping_into_brillig() {
         native_types::Expression,
     };
 
+    use nargo::ops::DefaultForeignCallExecutor;
+
     let fe_0 = FieldElement::zero();
     let fe_1 = FieldElement::one();
     let w_x = Witness(1);
@@ -420,7 +407,7 @@ fn test_resolve_foreign_calls_stepping_into_brillig() {
 
     let initial_witness = BTreeMap::from([(Witness(1), fe_1)]).into();
 
-    let mut context = DebugContext::new(blackbox_solver, circuit, debug_artifact, initial_witness);
+    let mut context = DebugContext::new(blackbox_solver, circuit, debug_artifact, initial_witness, Box::new(DefaultForeignCallExecutor::new(true)));
 
     assert_eq!(context.get_current_opcode_location(), Some(OpcodeLocation::Acir(0)));
 
@@ -465,6 +452,8 @@ fn test_break_brillig_block_while_stepping_acir_opcodes() {
         native_types::Expression,
     };
     use acvm::brillig_vm::brillig::BinaryFieldOp;
+
+    use nargo::ops::DefaultForeignCallExecutor;
 
     let fe_0 = FieldElement::zero();
     let fe_1 = FieldElement::one();
@@ -518,7 +507,7 @@ fn test_break_brillig_block_while_stepping_acir_opcodes() {
 
     let initial_witness = BTreeMap::from([(Witness(1), fe_1), (Witness(2), fe_1)]).into();
 
-    let mut context = DebugContext::new(blackbox_solver, circuit, debug_artifact, initial_witness);
+    let mut context = DebugContext::new(blackbox_solver, circuit, debug_artifact, initial_witness, Box::new(DefaultForeignCallExecutor::new(true)));
 
     // set breakpoint
     let breakpoint_location = OpcodeLocation::Brillig { acir_index: 0, brillig_index: 1 };
