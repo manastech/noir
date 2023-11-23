@@ -4,6 +4,7 @@
 
 mod errors;
 mod js_witness_map;
+mod foreign_call;
 
 use acvm::{
     acir::{
@@ -51,6 +52,9 @@ use noirc_driver::{CompiledContract, CompiledProgram, DebugFile};
 use acvm::acir::{BlackBoxFunc, FieldElement};
 use acvm_blackbox_solver::{BlackBoxFunctionSolver, BlackBoxResolutionError};
 
+use crate::{
+    foreign_call::{resolve_brillig, ForeignCallHandler},
+};
 
 fn decode_base64_symbols(base64_symbols: Vec<String>) -> Result<Vec<String>, JsDebuggerError> {
     let mut decoded_symbols = Vec::with_capacity(base64_symbols.len());
@@ -149,6 +153,7 @@ pub fn debug_with_solver(
     circuit: Vec<u8>,
     artifact: &str,
     initial_witness: JsWitnessMap,
+    foreign_call_handler: ForeignCallHandler,
 ) -> Result<JsString, JsDebuggerError> {
     console_error_panic_hook::set_once();
 
@@ -179,7 +184,7 @@ pub fn debug_with_solver(
         warnings: vec![], // Contract artifacts aren't persisting warnings
     };
 
-    let mut context = DebugContext::new(solver, &circuit, &debug_artifact, witness.clone());
+    let mut context = DebugContext::new_with_foreign_call_executor(solver, &circuit, &debug_artifact, witness.clone(), foreign_call_handler);
     context.cont();
 
     if context.is_solved() {

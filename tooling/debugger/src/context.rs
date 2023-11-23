@@ -12,6 +12,14 @@ use nargo::NargoError;
 
 use std::collections::{hash_set::Iter, HashSet};
 
+pub trait DebuggerForeignCallExecutor {
+    fn execute(
+        &mut self,
+        foreign_call: &ForeignCallWaitInfo,
+        show_output: bool,
+    ) -> Result<ForeignCallResult, NargoError>
+}
+
 #[derive(Debug)]
 pub enum DebugCommandResult {
     Done,
@@ -40,6 +48,23 @@ impl<'a, B: BlackBoxFunctionSolver> DebugContext<'a, B> {
             acvm: ACVM::new(blackbox_solver, &circuit.opcodes, initial_witness),
             brillig_solver: None,
             foreign_call_executor: ForeignCallExecutor::default(),
+            debug_artifact,
+            show_output: true,
+            breakpoints: HashSet::new(),
+        }
+    }
+
+    pub fn new_with_foreign_call_executor(
+        blackbox_solver: &'a B,
+        circuit: &'a Circuit,
+        debug_artifact: &'a DebugArtifact,
+        initial_witness: WitnessMap,
+        foreign_call_executor: ForeignCallExecutor,
+    ) -> Self {
+        Self {
+            acvm: ACVM::new(blackbox_solver, &circuit.opcodes, initial_witness),
+            brillig_solver: None,
+            foreign_call_executor,
             debug_artifact,
             show_output: true,
             breakpoints: HashSet::new(),
