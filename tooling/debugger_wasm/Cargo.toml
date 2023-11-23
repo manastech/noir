@@ -21,6 +21,7 @@ nargo.workspace = true
 noir_debugger.workspace = true
 noirc_driver.workspace = true
 noirc_errors.workspace = true
+noirc_printable_type.workspace = true
 iter-extended.workspace = true
 wasm-bindgen.workspace = true
 wasm-bindgen-futures.workspace = true

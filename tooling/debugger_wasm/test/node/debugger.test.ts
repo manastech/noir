@@ -65,7 +65,8 @@ it('successfully passes debug artifact to debugger', async function () {
       debug_symbols: CounterJson.debug.debugSymbols,
       file_map: CounterJson.debug.fileMap,
     }),
-    initialWitnessMap
+    initialWitnessMap,
+    () => {}
   );
 
   expect(result).to.be.deep.eq(expectedWitnessMap);

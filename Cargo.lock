@@ -1269,6 +1269,7 @@ dependencies = [
  "noir_debugger",
  "noirc_driver",
  "noirc_errors",
+ "noirc_printable_type",
  "serde",
  "serde_json",
  "wasm-bindgen",

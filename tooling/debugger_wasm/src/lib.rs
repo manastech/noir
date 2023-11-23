@@ -8,12 +8,13 @@ mod foreign_call;
 
 use acvm::{
     acir::{
+        brillig::{ForeignCallParam, ForeignCallResult, Value},
         circuit::Circuit,
         native_types::WitnessMap,
         BlackBoxFunc,
-        FieldElement,
+        FieldElement,        
     },
-    pwg::{ACVMStatus, ErrorLocation, OpcodeResolutionError, ACVM},
+    pwg::{ACVMStatus, ErrorLocation, OpcodeResolutionError, ACVM, ForeignCallWaitInfo},
     BlackBoxFunctionSolver,
     BlackBoxResolutionError,
 };
@@ -59,6 +60,9 @@ use noirc_driver::{CompiledContract, CompiledProgram, DebugFile};
 use crate::{
     foreign_call::{resolve_brillig, ForeignCallHandler},
 };
+
+use noirc_printable_type::ForeignCallError;
+
 
 fn decode_base64_symbols(base64_symbols: Vec<String>) -> Result<Vec<String>, JsDebuggerError> {
     let mut decoded_symbols = Vec::with_capacity(base64_symbols.len());
@@ -137,6 +141,30 @@ impl BlackBoxFunctionSolver for WasmBlackBoxFunctionSolver {
 }
 /******/
 
+#[derive(Debug, Default)]
+pub struct JsForeignCallExecutor {
+    // last_mock_id: usize,
+    // mocked_responses: Vec<MockedCall>,
+    // show_output: bool,
+}
+
+impl JsForeignCallExecutor {
+    pub fn new() -> Self {
+        JsForeignCallExecutor::default()
+    }
+}
+
+impl ForeignCallExecutor for JsForeignCallExecutor {
+    fn execute(
+        &mut self,
+        foreign_call: &ForeignCallWaitInfo,
+    ) -> Result<ForeignCallResult, ForeignCallError> {
+        Ok(ForeignCallResult { values: [].into() })
+    }
+}
+
+
+
 #[wasm_bindgen(js_name = echo)]
 pub fn echo(say: JsString) -> Result<JsString, JsDebuggerError> {
     console_error_panic_hook::set_once();
@@ -188,8 +216,7 @@ pub fn debug_with_solver(
         warnings: vec![], // Contract artifacts aren't persisting warnings
     };
 
-    let mut foreign_call_executor = DefaultForeignCallExecutor::new(true);
-    let mut context = DebugContext::new(solver, &circuit, &debug_artifact, witness.clone(), Box::new(DefaultForeignCallExecutor::new(true)));
+    let mut context = DebugContext::new(solver, &circuit, &debug_artifact, witness.clone(), Box::new(JsForeignCallExecutor::new()));
     context.cont();
 
     if context.is_solved() {
