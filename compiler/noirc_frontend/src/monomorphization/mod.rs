@@ -901,6 +901,18 @@ impl<'interner> Monomorphizer<'interner> {
                 if var_def.name != "__debug_expr" {
                     self.debug_types.insert_var(var_id, &var_def.name, var_type);
                 }
+            } else if let (
+                HirExpression::Literal(HirLiteral::Integer(fe_var_id)),
+                HirExpression::Ident(HirIdent { id, .. }),
+                true,
+            ) = (&hir_arguments[0], &hir_arguments[1], name == "__debug_member_assign_placeholder")
+            {
+                let var_def = self.interner.definition(*id);
+                let var_type = self.interner.id_type(call.arguments[1]);
+                let var_id = fe_var_id.to_u128() as u32;
+                if var_def.name != "__debug_expr" {
+                    self.debug_types.insert_var(var_id, &var_def.name, var_type);
+                }
             }
         }
         let func: Box<ast::Expression>;
