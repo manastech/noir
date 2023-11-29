@@ -6,13 +6,13 @@ use crate::{
 };
 use noirc_errors::{Span, Spanned};
 use std::collections::VecDeque;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
 pub struct DebugState {
-    pub variables: HashMap<u32, String>, // var_id => name
+    pub variables: HashMap<u32, String>, // var_id => var_name
     next_var_id: u32,
-    scope: Vec<HashSet<u32>>,
+    scope: Vec<HashMap<String,u32>>, // var_name => var_id
     pub enabled: bool,
 }
 
@@ -32,12 +32,18 @@ impl DebugState {
         let var_id = self.next_var_id;
         self.next_var_id += 1;
         self.variables.insert(var_id, var_name.to_string());
-        self.scope.last_mut().unwrap().insert(var_id);
+        self.scope.last_mut().unwrap().insert(var_name.to_string(), var_id);
         var_id
     }
 
+    fn lookup_var(&self, var_name: &str) -> Option<u32> {
+        self.scope.iter().rev().find_map(|vars| {
+            vars.get(var_name).copied()
+        })
+    }
+
     fn walk_fn(&mut self, f: &mut ast::FunctionDefinition) {
-        self.scope.push(HashSet::new());
+        self.scope.push(HashMap::default());
 
         let pvars: Vec<(u32, ast::Ident, bool)> = f
             .parameters
@@ -96,9 +102,9 @@ impl DebugState {
             // drop fn params:
             self.scope
                 .pop()
-                .unwrap_or(HashSet::default())
+                .unwrap_or(HashMap::default())
                 .iter()
-                .map(|var_id| self.wrap_drop_var(*var_id))
+                .map(|(_var_name,var_id)| self.wrap_drop_var(*var_id))
                 .collect(),
             // return the __debug_expr value:
             vec![match &ret_stmt.kind {
@@ -309,7 +315,8 @@ impl DebugState {
         });
         let new_assign_stmt = match &assign_stmt.lvalue {
             ast::LValue::Ident(id) => {
-                let var_id = self.insert_var(&id.0.contents);
+                let var_id = self.lookup_var(&id.0.contents)
+                    .expect(&format!["var lookup failed for var_name={}", &id.0.contents]);
                 self.wrap_assign_var(var_id, id_expr(&ident("__debug_expr")))
             },
             ast::LValue::Dereference(_lv) => {
@@ -324,7 +331,8 @@ impl DebugState {
                 loop {
                     match cursor {
                         ast::LValue::Ident(id) => {
-                            var_id = self.insert_var(&id.0.contents);
+                            var_id = self.lookup_var(&id.0.contents)
+                                .expect(&format!["var lookup failed for var_name={}", &id.0.contents]);
                             break;
                         },
                         ast::LValue::MemberAccess { object, field_name } => {
@@ -365,7 +373,7 @@ impl DebugState {
     fn walk_expr(&mut self, expr: &mut ast::Expression) {
         match &mut expr.kind {
             ast::ExpressionKind::Block(ast::BlockExpression(ref mut statements)) => {
-                self.scope.push(HashSet::new());
+                self.scope.push(HashMap::default());
                 self.walk_scope(statements);
             }
             ast::ExpressionKind::Prefix(prefix_expr) => {

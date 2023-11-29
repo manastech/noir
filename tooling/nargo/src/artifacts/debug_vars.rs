@@ -39,7 +39,6 @@ impl DebugVars {
         vars.iter().for_each(|(var_id, (var_name, var_type))| {
             self.id_to_name.insert(*var_id, var_name.clone());
             self.id_to_type.insert(*var_id, *var_type);
-            println!["INSERT VARIABLE {var_name}:{var_id} => {var_type}"];
         });
     }
 
@@ -51,7 +50,6 @@ impl DebugVars {
 
     pub fn assign(&mut self, var_id: u32, values: &[Value]) {
         self.active.insert(var_id);
-        println!["var_id={var_id:?}"];
         // TODO: assign values as PrintableValue
         let type_id = self.id_to_type.get(&var_id).unwrap();
         let ptype = self.types.get(&type_id).unwrap();
@@ -100,6 +98,7 @@ impl DebugVars {
     }
 }
 
+// TODO: put this in a From or Into impl
 fn create_value(ptype: &PrintableType, values: &[Value]) -> PrintableValue {
     match ptype {
         PrintableType::Field
