@@ -4,13 +4,15 @@ pub mod resolution;
 pub mod scope;
 pub mod type_check;
 
+use crate::debug::DebugState;
 use crate::graph::{CrateGraph, CrateId};
 use crate::hir_def::function::FuncMeta;
 use crate::node_interner::{FuncId, NodeInterner, StructId};
-use def_map::{Contract, CrateDefMap};
-use fm::FileManager;
+use crate::parser::{ParserError, SortedModule};
+use def_map::{parse_file, Contract, CrateDefMap};
+use fm::{FileId, FileManager};
 use noirc_errors::Location;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use self::def_map::TestFunction;
 
@@ -22,11 +24,19 @@ pub struct Context {
     pub crate_graph: CrateGraph,
     pub(crate) def_maps: BTreeMap<CrateId, CrateDefMap>,
     pub file_manager: FileManager,
+    pub root_crate_id: CrateId,
+    pub debug_state: DebugState,
 
     /// A map of each file that already has been visited from a prior `mod foo;` declaration.
     /// This is used to issue an error if a second `mod foo;` is declared to the same file.
     pub visited_files: BTreeMap<fm::FileId, Location>,
+
+    /// Maps a given (contract) module id to the next available storage slot
+    /// for that contract.
+    pub storage_slots: HashMap<def_map::ModuleId, StorageSlot>,
 }
+
+pub type StorageSlot = u32;
 
 #[derive(Debug, Copy, Clone)]
 pub enum FunctionNameMatch<'a> {
@@ -43,6 +53,9 @@ impl Context {
             visited_files: BTreeMap::new(),
             crate_graph,
             file_manager,
+            root_crate_id: CrateId::Dummy,
+            debug_state: DebugState::default(),
+            storage_slots: HashMap::new(),
         }
     }
 
@@ -189,5 +202,36 @@ impl Context {
 
     fn module(&self, module_id: def_map::ModuleId) -> &def_map::ModuleData {
         module_id.module(&self.def_maps)
+    }
+
+    /// Returns the next available storage slot in the given module.
+    /// Returns None if the given module is not a contract module.
+    fn next_storage_slot(&mut self, module_id: def_map::ModuleId) -> Option<StorageSlot> {
+        let module = self.module(module_id);
+
+        module.is_contract.then(|| {
+            let next_slot = self.storage_slots.entry(module_id).or_insert(0);
+            *next_slot += 1;
+            *next_slot
+        })
+    }
+
+    /// Given a FileId, fetch the File, from the FileManager and parse its content,
+    /// applying sorting and debug transforms if debug mode is enabled.
+    pub fn parse_file(
+        &mut self,
+        file_id: FileId,
+        crate_id: CrateId,
+    ) -> (SortedModule, Vec<ParserError>) {
+        let (mut ast, parsing_errors) = parse_file(&self.file_manager, file_id);
+
+        if crate_id == self.root_crate_id {
+            self.debug_state.insert_symbols(&mut ast);
+        }
+        (ast.into_sorted(), parsing_errors)
+    }
+
+    pub fn get_root_id(&self, crate_id: CrateId) -> FileId {
+        self.crate_graph[crate_id].root_file_id
     }
 }

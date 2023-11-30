@@ -2540,6 +2540,7 @@ dependencies = [
  "nargo",
  "noirc_driver",
  "noirc_errors",
+ "noirc_frontend",
  "noirc_printable_type",
  "owo-colors",
  "serde_json",
@@ -2654,6 +2655,7 @@ dependencies = [
  "codespan",
  "codespan-reporting",
  "fm",
+ "noirc_printable_type",
  "serde",
  "serde_with",
 ]
