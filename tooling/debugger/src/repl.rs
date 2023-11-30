@@ -567,8 +567,7 @@ pub fn run<B: BlackBoxFunctionSolver>(
                     let mut ctx = ref_context.borrow_mut();
                     let vars = ctx.context.debug_vars.get_variables();
                     println!["{}", vars.iter().map(|(var_name, value, var_type)| {
-                        let field = value.to_field();
-                        format!("{var_name}:{var_type:?}={field}")
+                        format!("{var_name}:{var_type:?}={value:?}")
                     }).collect::<Vec<String>>().join(", ")];
                     Ok(CommandStatus::Done)
                 }
