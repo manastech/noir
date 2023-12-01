@@ -6,17 +6,33 @@ use acvm::{BlackBoxFunctionSolver, FieldElement};
 
 use nargo::{artifacts::debug::DebugArtifact, ops::DefaultForeignCallExecutor, NargoError};
 
-use easy_repl::{command, CommandStatus, Repl};
-use std::cell::RefCell;
+use mini_async_repl::{
+    anyhow,
+    CommandStatus,
+    Repl,
+    command::{
+        Command,
+        CommandArgInfo,
+        ExecuteCommand,
+        validate,
+        lift_validation_err,
+    },
+};
 
 use codespan_reporting::files::Files;
 use noirc_errors::Location;
 
 use owo_colors::OwoColorize;
 
+use std::cell::RefCell;
+use std::rc::Rc;
 use std::ops::Range;
+use std::pin::Pin;
+use std::future::Future;
+use std::sync::{Arc, Mutex};
 
-pub struct ReplDebugger<'a, B: BlackBoxFunctionSolver> {
+pub struct ReplDebugger<'a, B>
+where B: BlackBoxFunctionSolver {
     context: DebugContext<'a, B>,
     blackbox_solver: &'a B,
     circuit: &'a Circuit,
@@ -25,7 +41,10 @@ pub struct ReplDebugger<'a, B: BlackBoxFunctionSolver> {
     last_result: DebugCommandResult,
 }
 
-impl<'a, B: BlackBoxFunctionSolver> ReplDebugger<'a, B> {
+impl<'a, B> ReplDebugger<'a, B> 
+where
+    B: BlackBoxFunctionSolver,
+{
     pub fn new(
         blackbox_solver: &'a B,
         circuit: &'a Circuit,
@@ -392,182 +411,96 @@ fn print_dimmed_line(line_number: usize, line: &str) {
     println!("{}", format!("{:>3} {:2} {}", line_number, "", line).dimmed());
 }
 
-pub fn run<B: BlackBoxFunctionSolver>(
-    blackbox_solver: &B,
-    circuit: &Circuit,
-    debug_artifact: &DebugArtifact,
+struct NextACIRCommandHandler<'a, B>
+where B: BlackBoxFunctionSolver {
+    context_arc: Arc<Mutex<Option<ReplDebugger<'a, B>>>>,
+}
+impl<'a, B> NextACIRCommandHandler<'a, B>
+where
+    B: BlackBoxFunctionSolver
+{
+    pub fn new(context_arc: Arc<Mutex<Option<ReplDebugger<'a, B>>>>) -> Self
+    where B: BlackBoxFunctionSolver
+    {
+        Self { context_arc }
+    }
+    async fn handle_command(&mut self) -> anyhow::Result<CommandStatus> {
+        {
+            let mut debugger_context = self.context_arc.lock().unwrap();
+            if let Some(debugger_context) = debugger_context.as_mut() {
+                debugger_context.step_acir_opcode();    
+            }
+            
+            anyhow::Ok(CommandStatus::Done)
+        }
+    }
+}
+impl<'a, B> ExecuteCommand for NextACIRCommandHandler<'a, B>
+where
+    B: BlackBoxFunctionSolver
+{
+    fn execute(
+        &mut self,
+        args: Vec<String>,
+        args_info: Vec<CommandArgInfo>,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<CommandStatus>> + '_>> {
+        let valid = validate(args.clone(), args_info.clone());
+        if let Err(e) = valid {
+            return Box::pin(lift_validation_err(Err(e)));
+        }
+        Box::pin(self.handle_command())
+    }
+}
+
+pub async fn run<'a, B: BlackBoxFunctionSolver>(
+    blackbox_solver: &'a B,
+    circuit: &'a Circuit,
+    debug_artifact: &'a DebugArtifact,
     initial_witness: WitnessMap,
 ) -> Result<Option<WitnessMap>, NargoError> {
-    let context =
-        RefCell::new(ReplDebugger::new(blackbox_solver, circuit, debug_artifact, initial_witness));
-    let ref_context = &context;
+    // let context =
+    // RefCell::new(ReplDebugger::new(blackbox_solver, circuit, debug_artifact, initial_witness));
+    let repl_debugger = ReplDebugger::new(blackbox_solver, circuit, debug_artifact, initial_witness);
+    let debugger_arc = Arc::new(Mutex::new(Some(repl_debugger)));
 
-    ref_context.borrow().show_current_vm_status();
+    // let context_rc = Rc::new(context);
 
+    {
+        let mut debugger_context = debugger_arc.lock().unwrap();
+        if let Some(debugger_context) = debugger_context.as_mut() {
+            debugger_context.show_current_vm_status();
+        }
+    }
+    
     let mut repl = Repl::builder()
         .add(
-            "step",
-            command! {
+            "step", Command::new(
                 "step to the next ACIR opcode",
-                () => || {
-                    ref_context.borrow_mut().step_acir_opcode();
-                    Ok(CommandStatus::Done)
-                }
-            },
-        )
-        .add(
-            "into",
-            command! {
-                "step into to the next opcode",
-                () => || {
-                    ref_context.borrow_mut().step_into_opcode();
-                    Ok(CommandStatus::Done)
-                }
-            },
-        )
-        .add(
-            "next",
-            command! {
-                "step until a new source location is reached",
-                () => || {
-                    ref_context.borrow_mut().next();
-                    Ok(CommandStatus::Done)
-                }
-            },
-        )
-        .add(
-            "continue",
-            command! {
-                "continue execution until the end of the program",
-                () => || {
-                    ref_context.borrow_mut().cont();
-                    Ok(CommandStatus::Done)
-                }
-            },
-        )
-        .add(
-            "restart",
-            command! {
-                "restart the debugging session",
-                () => || {
-                    ref_context.borrow_mut().restart_session();
-                    Ok(CommandStatus::Done)
-                }
-            },
-        )
-        .add(
-            "opcodes",
-            command! {
-                "display ACIR opcodes",
-                () => || {
-                    ref_context.borrow().display_opcodes();
-                    Ok(CommandStatus::Done)
-                }
-            },
-        )
-        .add(
-            "break",
-            command! {
-                "add a breakpoint at an opcode location",
-                (LOCATION:OpcodeLocation) => |location| {
-                    ref_context.borrow_mut().add_breakpoint_at(location);
-                    Ok(CommandStatus::Done)
-                }
-            },
-        )
-        .add(
-            "delete",
-            command! {
-                "delete breakpoint at an opcode location",
-                (LOCATION:OpcodeLocation) => |location| {
-                    ref_context.borrow_mut().delete_breakpoint_at(location);
-                    Ok(CommandStatus::Done)
-                }
-            },
-        )
-        .add(
-            "witness",
-            command! {
-                "show witness map",
-                () => || {
-                    ref_context.borrow().show_witness_map();
-                    Ok(CommandStatus::Done)
-                }
-            },
-        )
-        .add(
-            "witness",
-            command! {
-                "display a single witness from the witness map",
-                (index: u32) => |index| {
-                    ref_context.borrow().show_witness(index);
-                    Ok(CommandStatus::Done)
-                }
-            },
-        )
-        .add(
-            "witness",
-            command! {
-                "update a witness with the given value",
-                (index: u32, value: String) => |index, value| {
-                    ref_context.borrow_mut().update_witness(index, value);
-                    Ok(CommandStatus::Done)
-                }
-            },
-        )
-        .add(
-            "registers",
-            command! {
-                "show Brillig registers (valid when executing a Brillig block)",
-                () => || {
-                    ref_context.borrow().show_brillig_registers();
-                    Ok(CommandStatus::Done)
-                }
-            },
-        )
-        .add(
-            "regset",
-            command! {
-                "update a Brillig register with the given value",
-                (index: usize, value: String) => |index, value| {
-                    ref_context.borrow_mut().set_brillig_register(index, value);
-                    Ok(CommandStatus::Done)
-                }
-            },
-        )
-        .add(
-            "memory",
-            command! {
-                "show Brillig memory (valid when executing a Brillig block)",
-                () => || {
-                    ref_context.borrow().show_brillig_memory();
-                    Ok(CommandStatus::Done)
-                }
-            },
-        )
-        .add(
-            "memset",
-            command! {
-                "update a Brillig memory cell with the given value",
-                (index: usize, value: String) => |index, value| {
-                    ref_context.borrow_mut().write_brillig_memory(index, value);
-                    Ok(CommandStatus::Done)
-                }
-            },
+                vec![],
+                Box::new(NextACIRCommandHandler::new(debugger_arc.clone()))
+            )
         )
         .build()
         .expect("Failed to initialize debugger repl");
 
-    repl.run().expect("Debugger error");
+    repl.run().await.expect("Debugger error");
 
     // REPL execution has finished.
     // Drop it so that we can move fields out from `context` again.
     drop(repl);
 
-    if context.borrow().is_solved() {
-        let solved_witness = context.into_inner().finalize();
-        Ok(Some(solved_witness))
+    let mut debugger_context = debugger_arc.lock().unwrap();
+    let moved_out_context = std::mem::replace(&mut *debugger_context, None);
+
+    if let Some(moved_out_context) = moved_out_context {
+        if moved_out_context.is_solved() {
+            let solved_witness = moved_out_context.finalize();
+            Ok(Some(solved_witness))
+        } else {
+            Ok(None)
+        }
     } else {
+        //TODO: how do we handle this "could not get lock" case?
         Ok(None)
     }
 }
