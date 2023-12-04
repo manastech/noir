@@ -32,11 +32,9 @@ use std::future::Future;
 use std::sync::{Arc, Mutex};
 
 pub struct ReplDebugger<'a, B>
-where B: BlackBoxFunctionSolver {
+where B: BlackBoxFunctionSolver + 'static {
     context: DebugContext<'a, B>,
-    blackbox_solver: &'a B,
-    circuit: &'a Circuit,
-    debug_artifact: &'a DebugArtifact,
+    runtime: Arc<ReplDebuggerInput<B>>,
     initial_witness: WitnessMap,
     last_result: DebugCommandResult,
 }
@@ -46,23 +44,20 @@ where
     B: BlackBoxFunctionSolver,
 {
     pub fn new(
-        blackbox_solver: &'a B,
-        circuit: &'a Circuit,
-        debug_artifact: &'a DebugArtifact,
+        runtime: Arc<ReplDebuggerInput<B>>,
         initial_witness: WitnessMap,
     ) -> Self {
+        let runtime_clone = Arc::clone(&runtime);
         let context = DebugContext::new(
-            blackbox_solver,
-            circuit,
-            debug_artifact,
+            &runtime_clone.blackbox_solver,
+            &runtime_clone.circuit,
+            &runtime_clone.debug_artifact,
             initial_witness.clone(),
             Box::new(DefaultForeignCallExecutor::new(true)),
         );
         Self {
             context,
-            blackbox_solver,
-            circuit,
-            debug_artifact,
+            runtime: Arc::clone(&runtime),
             initial_witness,
             last_result: DebugCommandResult::Ok,
         }
@@ -95,22 +90,22 @@ where
     }
 
     fn print_location_path(&self, loc: Location) {
-        let line_number = self.debug_artifact.location_line_number(loc).unwrap();
-        let column_number = self.debug_artifact.location_column_number(loc).unwrap();
+        let line_number = self.runtime.debug_artifact.location_line_number(loc).unwrap();
+        let column_number = self.runtime.debug_artifact.location_column_number(loc).unwrap();
 
         println!(
             "At {}:{line_number}:{column_number}",
-            self.debug_artifact.name(loc.file).unwrap()
+            self.runtime.debug_artifact.name(loc.file).unwrap()
         );
     }
 
     fn show_source_code_location(&self, location: &OpcodeLocation) {
-        let locations = self.debug_artifact.debug_symbols[0].opcode_location(location);
+        let locations = self.runtime.debug_artifact.debug_symbols[0].opcode_location(location);
         let Some(locations) = locations else { return };
         for loc in locations {
             self.print_location_path(loc);
 
-            let loc_line_index = self.debug_artifact.location_line_index(loc).unwrap();
+            let loc_line_index = self.runtime.debug_artifact.location_line_index(loc).unwrap();
 
             // How many lines before or after the location's line we
             // print
@@ -119,10 +114,10 @@ where
             let first_line_to_print =
                 if loc_line_index < context_lines { 0 } else { loc_line_index - context_lines };
 
-            let last_line_index = self.debug_artifact.last_line_index(loc).unwrap();
+            let last_line_index = self.runtime.debug_artifact.last_line_index(loc).unwrap();
             let last_line_to_print = std::cmp::min(loc_line_index + context_lines, last_line_index);
 
-            let source = self.debug_artifact.location_source_code(loc).unwrap();
+            let source = self.runtime.debug_artifact.location_source_code(loc).unwrap();
             for (current_line_index, line) in source.lines().enumerate() {
                 let current_line_number = current_line_index + 1;
 
@@ -144,7 +139,7 @@ where
                 if current_line_index == loc_line_index {
                     // Highlight current location
                     let Range { start: loc_start, end: loc_end } =
-                        self.debug_artifact.location_in_line(loc).unwrap();
+                        self.runtime.debug_artifact.location_in_line(loc).unwrap();
                     println!(
                         "{:>3} {:2} {}{}{}",
                         current_line_number,
@@ -293,9 +288,9 @@ where
         let breakpoints: Vec<OpcodeLocation> =
             self.context.iterate_breakpoints().copied().collect();
         self.context = DebugContext::new(
-            self.blackbox_solver,
-            self.circuit,
-            self.debug_artifact,
+            &self.runtime.blackbox_solver,
+            &self.runtime.circuit,
+            &self.runtime.debug_artifact,
             self.initial_witness.clone(),
             Box::new(DefaultForeignCallExecutor::new(true)),
         );
@@ -412,7 +407,7 @@ fn print_dimmed_line(line_number: usize, line: &str) {
 }
 
 struct NextACIRCommandHandler<'a, B>
-where B: BlackBoxFunctionSolver {
+where B: BlackBoxFunctionSolver + 'static {
     context_arc: Arc<Mutex<Option<ReplDebugger<'a, B>>>>,
 }
 impl<'a, B> NextACIRCommandHandler<'a, B>
@@ -452,15 +447,16 @@ where
     }
 }
 
-pub async fn run<'a, B: BlackBoxFunctionSolver>(
-    blackbox_solver: &'a B,
-    circuit: &'a Circuit,
-    debug_artifact: &'a DebugArtifact,
-    initial_witness: WitnessMap,
-) -> Result<Option<WitnessMap>, NargoError> {
+pub struct ReplDebuggerInput<B: BlackBoxFunctionSolver + 'static> {
+    pub blackbox_solver: B,
+    pub circuit: Circuit,
+    pub debug_artifact: DebugArtifact,
+}
+
+pub async fn run<B: BlackBoxFunctionSolver>(input: Arc<ReplDebuggerInput<B>>, initial_witness: WitnessMap) -> Result<Option<WitnessMap>, NargoError> {
     // let context =
     // RefCell::new(ReplDebugger::new(blackbox_solver, circuit, debug_artifact, initial_witness));
-    let repl_debugger = ReplDebugger::new(blackbox_solver, circuit, debug_artifact, initial_witness);
+    let repl_debugger = ReplDebugger::new(input, initial_witness);
     let debugger_arc = Arc::new(Mutex::new(Some(repl_debugger)));
 
     // let context_rc = Rc::new(context);

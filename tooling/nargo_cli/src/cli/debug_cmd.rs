@@ -1,6 +1,10 @@
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use acvm::acir::native_types::WitnessMap;
+use acvm::acir::circuit::Circuit;
+use acvm::BlackBoxFunctionSolver;
+
 use clap::Args;
 
 use nargo::artifacts::debug::DebugArtifact;
@@ -9,6 +13,7 @@ use nargo::package::Package;
 use nargo_toml::{get_package_manifest, resolve_workspace_from_toml, PackageSelection};
 use noirc_abi::input_parser::{Format, InputValue};
 use noirc_abi::InputMap;
+use noirc_abi::Abi;
 use noirc_driver::{CompileOptions, CompiledProgram, NOIR_ARTIFACT_VERSION_STRING};
 use noirc_frontend::graph::CrateName;
 
@@ -66,23 +71,42 @@ pub(crate) fn run(
         &opcode_support,
     )?;
 
-    run_async(package, compiled_program, &args.prover_name, &args.witness_name, target_dir)
+
+    // Parse the initial witness values from Prover.toml
+    let (inputs_map, _) =
+        read_inputs_from_file(&package.root_dir, &args.prover_name, Format::Toml, &compiled_program.abi)?;
+
+    #[allow(deprecated)]
+    let initial_witness = compiled_program.abi.encode(&inputs_map, None)?;
+
+    println!("[{}] Starting debugger", package.name);
+    run_async(package, &compiled_program, &args.witness_name, target_dir, initial_witness)
 }
 
 fn run_async(
     package: &Package,
-    program: CompiledProgram,
-    prover_name: &str,
+    program: &CompiledProgram,
     witness_name: &Option<String>,
     target_dir: &PathBuf,
-) -> Result<(), CliError> {
+    initial_witness: WitnessMap,
+) -> Result<(), CliError> {    
     use tokio::runtime::Builder;
     let runtime = Builder::new_current_thread().enable_all().build().unwrap();
 
-    runtime.block_on(async {
-        println!("[{}] Starting debugger", package.name);
-        let (return_value, solved_witness) =
-            debug_program_and_decode(program, package, prover_name)?;
+    let debugger_input = Arc::new(ReplDebuggerInput {
+        blackbox_solver: barretenberg_blackbox_solver::BarretenbergSolver::new(),
+        circuit: program.circuit.clone(),
+        debug_artifact: DebugArtifact {
+            debug_symbols: vec![program.debug.clone()],
+            file_map: program.file_map.clone(),
+            warnings: program.warnings.clone(),
+        },
+    });
+
+    let public_abi = program.abi.clone().public_abi();    
+
+    runtime.block_on(async move {                
+        let (return_value, solved_witness) = debug_program_and_decode(input, initial_witness, public_abi).await?;
 
         if let Some(solved_witness) = solved_witness {
             println!("[{}] Circuit witness successfully solved", package.name);
@@ -104,17 +128,13 @@ fn run_async(
     })
 }
 
-fn debug_program_and_decode(
-    program: CompiledProgram,
-    package: &Package,
-    prover_name: &str,
+async fn debug_program_and_decode<B: BlackBoxFunctionSolver>(
+    input: Arc<ReplDebuggerInput>,
+    initial_witness: WitnessMap,
+    public_abi: Abi,    
 ) -> Result<(Option<InputValue>, Option<WitnessMap>), CliError> {
-    // Parse the initial witness values from Prover.toml
-    let (inputs_map, _) =
-        read_inputs_from_file(&package.root_dir, prover_name, Format::Toml, &program.abi)?;
-    let solved_witness = debug_program(&program, &inputs_map)?;
-    let public_abi = program.abi.public_abi();
-
+    let solved_witness = noir_debugger::debug_circuit(input, initial_witness).await.map_err(CliError::from)?;
+    
     match solved_witness {
         Some(witness) => {
             let (_, return_value) = public_abi.decode(&witness)?;
@@ -122,28 +142,4 @@ fn debug_program_and_decode(
         }
         None => Ok((None, None)),
     }
-}
-
-pub(crate) fn debug_program(
-    compiled_program: &CompiledProgram,
-    inputs_map: &InputMap,
-) -> Result<Option<WitnessMap>, CliError> {
-    #[allow(deprecated)]
-    let blackbox_solver = barretenberg_blackbox_solver::BarretenbergSolver::new();
-
-    let initial_witness = compiled_program.abi.encode(inputs_map, None)?;
-
-    let debug_artifact = DebugArtifact {
-        debug_symbols: vec![compiled_program.debug.clone()],
-        file_map: compiled_program.file_map.clone(),
-        warnings: compiled_program.warnings.clone(),
-    };
-
-    noir_debugger::debug_circuit(
-        &blackbox_solver,
-        &compiled_program.circuit,
-        debug_artifact,
-        initial_witness,
-    )
-    .map_err(CliError::from)
 }

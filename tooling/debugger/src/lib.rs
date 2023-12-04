@@ -8,11 +8,13 @@ use nargo::artifacts::debug::DebugArtifact;
 
 use nargo::NargoError;
 
-pub async fn debug_circuit<'a, B: BlackBoxFunctionSolver>(
-    blackbox_solver: &'a B,
-    circuit: &'a Circuit,
-    debug_artifact: &'a DebugArtifact,
+use std::sync::Arc;
+
+use crate::repl::ReplDebuggerInput;
+
+pub async fn debug_circuit<B: BlackBoxFunctionSolver>(
+    input: Arc<ReplDebuggerInput<B>>,
     initial_witness: WitnessMap,
 ) -> Result<Option<WitnessMap>, NargoError> {
-    repl::run(blackbox_solver, circuit, &debug_artifact, initial_witness).await
+    repl::run(input, initial_witness).await
 }
