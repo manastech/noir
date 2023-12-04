@@ -1,18 +1,13 @@
 mod context;
 mod repl;
 
-use acvm::BlackBoxFunctionSolver;
-use acvm::{acir::circuit::Circuit, acir::native_types::WitnessMap};
-
-use nargo::artifacts::debug::DebugArtifact;
-
+use acvm::acir::native_types::WitnessMap;
+use noirc_driver::CompiledProgram;
 use nargo::NargoError;
 
-pub fn debug_circuit<B: BlackBoxFunctionSolver>(
-    blackbox_solver: &B,
-    circuit: &Circuit,
-    debug_artifact: DebugArtifact,
+pub fn debug_circuit(
+    compiled_program: &CompiledProgram,
     initial_witness: WitnessMap,
 ) -> Result<Option<WitnessMap>, NargoError> {
-    repl::run(blackbox_solver, circuit, &debug_artifact, initial_witness)
+    repl::run(compiled_program, initial_witness)
 }

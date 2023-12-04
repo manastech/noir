@@ -3,7 +3,6 @@ use std::path::PathBuf;
 use acvm::acir::native_types::WitnessMap;
 use clap::Args;
 
-use nargo::artifacts::debug::DebugArtifact;
 use nargo::constants::PROVER_INPUT_FILE;
 use nargo::package::Package;
 use nargo_toml::{get_package_manifest, resolve_workspace_from_toml, PackageSelection};
@@ -76,10 +75,10 @@ fn run_async(
     witness_name: &Option<String>,
     target_dir: &PathBuf,
 ) -> Result<(), CliError> {
-    use tokio::runtime::Builder;
-    let runtime = Builder::new_current_thread().enable_all().build().unwrap();
+    // use tokio::runtime::Builder;
+    // let runtime = Builder::new_current_thread().enable_all().build().unwrap();
 
-    runtime.block_on(async {
+    // runtime.block_on(async {
         println!("[{}] Starting debugger", package.name);
         let (return_value, solved_witness) =
             debug_program_and_decode(program, package, prover_name)?;
@@ -101,7 +100,7 @@ fn run_async(
         }
 
         Ok(())
-    })
+    // })
 }
 
 fn debug_program_and_decode(
@@ -129,20 +128,10 @@ pub(crate) fn debug_program(
     inputs_map: &InputMap,
 ) -> Result<Option<WitnessMap>, CliError> {
     #[allow(deprecated)]
-    let blackbox_solver = barretenberg_blackbox_solver::BarretenbergSolver::new();
-
     let initial_witness = compiled_program.abi.encode(inputs_map, None)?;
 
-    let debug_artifact = DebugArtifact {
-        debug_symbols: vec![compiled_program.debug.clone()],
-        file_map: compiled_program.file_map.clone(),
-        warnings: compiled_program.warnings.clone(),
-    };
-
     noir_debugger::debug_circuit(
-        &blackbox_solver,
-        &compiled_program.circuit,
-        debug_artifact,
+        compiled_program,
         initial_witness,
     )
     .map_err(CliError::from)

@@ -2521,13 +2521,16 @@ name = "noir_debugger"
 version = "0.19.4"
 dependencies = [
  "acvm",
+ "barretenberg_blackbox_solver",
  "codespan-reporting",
  "easy-repl",
  "nargo",
+ "noirc_driver",
  "noirc_errors",
  "noirc_printable_type",
  "owo-colors",
  "thiserror",
+ "tokio",
 ]
 
 [[package]]
@@ -3854,6 +3857,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "signal-hook-registry"
+version = "1.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d8229b473baa5980ac72ef434c4415e70c4b5e71b423043adb4ba059f89c99a1"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "signature"
 version = "1.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4267,7 +4279,9 @@ dependencies = [
  "libc",
  "mio",
  "num_cpus",
+ "parking_lot",
  "pin-project-lite",
+ "signal-hook-registry",
  "socket2",
  "tokio-macros",
  "windows-sys 0.48.0",
