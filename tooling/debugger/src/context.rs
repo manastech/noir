@@ -1,8 +1,8 @@
 use acvm::acir::circuit::{Circuit, Opcode, OpcodeLocation};
 use acvm::acir::native_types::{Witness, WitnessMap};
-use acvm::brillig_vm::{brillig::Value, Registers, brillig::ForeignCallResult};
+use acvm::brillig_vm::{brillig::ForeignCallResult, brillig::Value, Registers};
 use acvm::pwg::{
-    ACVMStatus, BrilligSolver, BrilligSolverStatus, ForeignCallWaitInfo, StepResult, ACVM
+    ACVMStatus, BrilligSolver, BrilligSolverStatus, ForeignCallWaitInfo, StepResult, ACVM,
 };
 use acvm::{BlackBoxFunctionSolver, FieldElement};
 
@@ -12,7 +12,6 @@ use nargo::ops::ForeignCallExecutor;
 use nargo::NargoError;
 
 use noirc_printable_type::ForeignCallError;
-
 
 use std::collections::{hash_set::Iter, HashSet};
 
@@ -120,13 +119,17 @@ impl<'a, B: BlackBoxFunctionSolver> DebugContext<'a, B> {
         }
     }
 
-    async fn simulate_async(&mut self, foreign_call: ForeignCallWaitInfo) -> Result<ForeignCallResult, ForeignCallError> {
-        async {
-            self.foreign_call_executor.execute(&foreign_call)
-        }.await
+    async fn simulate_async(
+        &mut self,
+        foreign_call: ForeignCallWaitInfo,
+    ) -> Result<ForeignCallResult, ForeignCallError> {
+        async { self.foreign_call_executor.execute(&foreign_call) }.await
     }
 
-    async fn handle_foreign_call(&mut self, foreign_call: ForeignCallWaitInfo) -> DebugCommandResult {
+    async fn handle_foreign_call(
+        &mut self,
+        foreign_call: ForeignCallWaitInfo,
+    ) -> DebugCommandResult {
         let foreign_call_result = self.simulate_async(foreign_call).await;
         match foreign_call_result {
             Ok(foreign_call_result) => {
@@ -382,10 +385,7 @@ fn test_debugger_async() {
 
     use nargo::ops::DefaultForeignCallExecutor;
 
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap();
+    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
 
     let t1 = rt.block_on(async {
         let fe_0 = FieldElement::zero();
@@ -394,7 +394,7 @@ fn test_debugger_async() {
 
         // let blackbox_solver = &StubbedSolver;
         let blackbox_solver = barretenberg_blackbox_solver::BarretenbergSolver::new();
-        
+
         let brillig_opcodes = Brillig {
             inputs: vec![BrilligInputs::Single(Expression {
                 linear_combinations: vec![(fe_1, w_x)],
@@ -402,7 +402,10 @@ fn test_debugger_async() {
             })],
             outputs: vec![],
             bytecode: vec![
-                BrilligOpcode::Const { destination: RegisterIndex::from(1), value: Value::from(fe_0) },
+                BrilligOpcode::Const {
+                    destination: RegisterIndex::from(1),
+                    value: Value::from(fe_0),
+                },
                 BrilligOpcode::ForeignCall {
                     function: "clear_mock".into(),
                     destinations: vec![],

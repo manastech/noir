@@ -79,27 +79,26 @@ fn run_async(
     // let runtime = Builder::new_current_thread().enable_all().build().unwrap();
 
     // runtime.block_on(async {
-        println!("[{}] Starting debugger", package.name);
-        let (return_value, solved_witness) =
-            debug_program_and_decode(program, package, prover_name)?;
+    println!("[{}] Starting debugger", package.name);
+    let (return_value, solved_witness) = debug_program_and_decode(program, package, prover_name)?;
 
-        if let Some(solved_witness) = solved_witness {
-            println!("[{}] Circuit witness successfully solved", package.name);
+    if let Some(solved_witness) = solved_witness {
+        println!("[{}] Circuit witness successfully solved", package.name);
 
-            if let Some(return_value) = return_value {
-                println!("[{}] Circuit output: {return_value:?}", package.name);
-            }
-
-            if let Some(witness_name) = witness_name {
-                let witness_path = save_witness_to_dir(solved_witness, witness_name, target_dir)?;
-
-                println!("[{}] Witness saved to {}", package.name, witness_path.display());
-            }
-        } else {
-            println!("Debugger execution halted.");
+        if let Some(return_value) = return_value {
+            println!("[{}] Circuit output: {return_value:?}", package.name);
         }
 
-        Ok(())
+        if let Some(witness_name) = witness_name {
+            let witness_path = save_witness_to_dir(solved_witness, witness_name, target_dir)?;
+
+            println!("[{}] Witness saved to {}", package.name, witness_path.display());
+        }
+    } else {
+        println!("Debugger execution halted.");
+    }
+
+    Ok(())
     // })
 }
 
@@ -130,9 +129,5 @@ pub(crate) fn debug_program(
     #[allow(deprecated)]
     let initial_witness = compiled_program.abi.encode(inputs_map, None)?;
 
-    noir_debugger::debug_circuit(
-        compiled_program,
-        initial_witness,
-    )
-    .map_err(CliError::from)
+    noir_debugger::debug_circuit(compiled_program, initial_witness).map_err(CliError::from)
 }
