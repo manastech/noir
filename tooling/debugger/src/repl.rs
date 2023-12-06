@@ -22,21 +22,12 @@ use owo_colors::OwoColorize;
 
 use std::ops::Range;
 
-use acvm::pwg::{
-    ACVMStatus, BrilligSolver, BrilligSolverStatus, ForeignCallWaitInfo, StepResult, ACVM,
-};
-
-use acvm::brillig_vm::{brillig::ForeignCallResult, brillig::Value, Registers};
-
-use acvm::acir::{
-    brillig::{Opcode as BrilligOpcode, RegisterIndex, RegisterOrMemory},
-    circuit::brillig::{Brillig, BrilligInputs},
-    native_types::Expression,
-};
-
-use noirc_driver::{CompileOptions, CompiledProgram, NOIR_ARTIFACT_VERSION_STRING};
+use noirc_driver::CompiledProgram;
 
 use tokio::sync::mpsc::Sender;
+use tokio::sync::mpsc;
+use tokio::task::spawn_local;
+use tokio::task::LocalSet;
 
 use std::pin::Pin;
 
@@ -49,7 +40,6 @@ pub struct ReplDebugger<'a, B: BlackBoxFunctionSolver> {
     debug_artifact: &'a DebugArtifact,
     initial_witness: WitnessMap,
     last_result: DebugCommandResult,
-    outbox: Sender<Option<WitnessMap>>,
 }
 
 impl<'a, B: BlackBoxFunctionSolver> ReplDebugger<'a, B> {
@@ -58,7 +48,6 @@ impl<'a, B: BlackBoxFunctionSolver> ReplDebugger<'a, B> {
         circuit: &'a Circuit,
         debug_artifact: &'a DebugArtifact,
         initial_witness: WitnessMap,
-        outbox: Sender<Option<WitnessMap>>,
     ) -> Self {
         let context = DebugContext::new(
             blackbox_solver,
@@ -74,7 +63,6 @@ impl<'a, B: BlackBoxFunctionSolver> ReplDebugger<'a, B> {
             debug_artifact,
             initial_witness,
             last_result: DebugCommandResult::Ok,
-            outbox,
         }
     }
 
@@ -411,10 +399,6 @@ impl<'a, B: BlackBoxFunctionSolver> ReplDebugger<'a, B> {
     fn is_solved(&self) -> bool {
         self.context.is_solved()
     }
-
-    fn finalize(self) -> WitnessMap {
-        self.context.finalize()
-    }
 }
 
 fn print_line_of_ellipsis(line_number: usize) {
@@ -520,7 +504,6 @@ impl ExecuteCommand for DebuggerCommandHandler {
                     _ => panic!("Unreachable, validator should have covered this"),
                 }
             }
-            ReplDebuggerMessageType::Finalize => ReplDebuggerMessage::Finalize,
         };
 
         Box::pin(self.handle_command(debugger_msg))
@@ -544,7 +527,6 @@ enum ReplDebuggerMessageType {
     MemSet,
     BreakpointSet,
     BreakpointDelete,
-    Finalize,
 }
 
 #[derive(Debug, Clone)]
@@ -571,11 +553,6 @@ pub fn run(
     compiled_program: &CompiledProgram,
     initial_witness: WitnessMap,
 ) -> Result<Option<WitnessMap>, NargoError> {
-    use tokio::sync::mpsc;
-    use tokio::sync::oneshot;
-    use tokio::task::spawn_local;
-    use tokio::task::LocalSet;
-
     let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
 
     // Using single threaded environment to
@@ -593,6 +570,7 @@ pub fn run(
                         mpsc::channel::<Option<WitnessMap>>(1);
 
                     let debugger = spawn_local(async move {
+                        #[allow(deprecated)]
                         let blackbox_solver =
                             barretenberg_blackbox_solver::BarretenbergSolver::new();
 
@@ -607,7 +585,6 @@ pub fn run(
                             &compiled_program.circuit,
                             &debug_artifact,
                             initial_witness,
-                            from_debugger.clone(),
                         );
 
                         repl_debugger.show_current_vm_status();

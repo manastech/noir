@@ -326,10 +326,6 @@ impl<'a, B: BlackBoxFunctionSolver> DebugContext<'a, B> {
     pub(super) fn is_solved(&self) -> bool {
         matches!(self.acvm.get_status(), ACVMStatus::Solved)
     }
-
-    pub fn finalize(self) -> WitnessMap {
-        self.acvm.finalize()
-    }
 }
 
 #[cfg(test)]
