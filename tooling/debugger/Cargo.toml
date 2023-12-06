@@ -17,6 +17,6 @@ thiserror.workspace = true
 codespan-reporting.workspace = true
 mini_async_repl = "0.2.1"
 owo-colors = "3"
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1", features = ["rt"] }
 barretenberg_blackbox_solver.workspace = true
 noirc_driver.workspace = true

@@ -24,8 +24,8 @@ use std::ops::Range;
 
 use noirc_driver::CompiledProgram;
 
-use tokio::sync::mpsc::Sender;
 use tokio::sync::mpsc;
+use tokio::sync::mpsc::Sender;
 use tokio::task::spawn_local;
 use tokio::task::LocalSet;
 
@@ -562,295 +562,306 @@ pub fn run(
     let compiled_program = compiled_program.clone();
 
     rt.block_on(async {
-        let result =
-            local
-                .run_until(async move {
-                    let (to_debugger, mut debugger_inbox) = mpsc::channel::<ReplDebuggerMessage>(1);
-                    let (from_debugger, mut receive_from_debugger) =
-                        mpsc::channel::<Option<WitnessMap>>(1);
+        local
+            .run_until(async move {
+                let (to_debugger, mut debugger_inbox) = mpsc::channel::<ReplDebuggerMessage>(1);
+                let (from_debugger, mut receive_from_debugger) =
+                    mpsc::channel::<Option<WitnessMap>>(1);
 
-                    let debugger = spawn_local(async move {
-                        #[allow(deprecated)]
-                        let blackbox_solver =
-                            barretenberg_blackbox_solver::BarretenbergSolver::new();
+                let debugger = spawn_local(async move {
+                    #[allow(deprecated)]
+                    let blackbox_solver = barretenberg_blackbox_solver::BarretenbergSolver::new();
 
-                        let debug_artifact = DebugArtifact {
-                            debug_symbols: vec![compiled_program.debug.clone()],
-                            file_map: compiled_program.file_map.clone(),
-                            warnings: compiled_program.warnings.clone(),
-                        };
-
-                        let mut repl_debugger = ReplDebugger::new(
-                            &blackbox_solver,
-                            &compiled_program.circuit,
-                            &debug_artifact,
-                            initial_witness,
-                        );
-
-                        repl_debugger.show_current_vm_status();
-
-                        while let Some(msg) = debugger_inbox.recv().await {
-                            match msg {
-                                ReplDebuggerMessage::StepIntoOpcode => {
-                                    repl_debugger.step_into_opcode().await;
-                                }
-                                ReplDebuggerMessage::StepIntoACIR => {
-                                    repl_debugger.step_acir_opcode().await;
-                                }
-                                ReplDebuggerMessage::Next => {
-                                    repl_debugger.next().await;
-                                }
-                                ReplDebuggerMessage::Continue => {
-                                    repl_debugger.cont().await;
-                                }
-                                ReplDebuggerMessage::Restart => {
-                                    repl_debugger.restart_session();
-                                }
-                                ReplDebuggerMessage::DisplayACIROpcodes => {
-                                    repl_debugger.display_opcodes();
-                                }
-                                ReplDebuggerMessage::ShowWitnessMap => {
-                                    repl_debugger.show_witness_map();
-                                }
-                                ReplDebuggerMessage::ShowBrilligRegisters => {
-                                    repl_debugger.show_brillig_registers();
-                                }
-                                ReplDebuggerMessage::ShowBrilligMemory => {
-                                    repl_debugger.show_brillig_memory();
-                                }
-                                ReplDebuggerMessage::DisplaySingleWitness { index } => {
-                                    repl_debugger.show_witness(index);
-                                }
-                                ReplDebuggerMessage::UpdateWitness { index, new_value } => {
-                                    repl_debugger.update_witness(index, new_value);
-                                }
-                                ReplDebuggerMessage::RegSet { index, new_value } => {
-                                    repl_debugger.set_brillig_register(index, new_value);
-                                }
-                                ReplDebuggerMessage::MemSet { index, new_value } => {
-                                    repl_debugger.write_brillig_memory(index, new_value);
-                                }
-                                ReplDebuggerMessage::BreakpointSet { location } => {
-                                    repl_debugger.add_breakpoint_at(location);
-                                }
-                                ReplDebuggerMessage::BreakpointDelete { location } => {
-                                    repl_debugger.delete_breakpoint_at(location);
-                                }
-                                ReplDebuggerMessage::Finalize => {
-                                    if repl_debugger.is_solved() {
-                                        from_debugger
-                                            .send(Some(repl_debugger.get_witness_map()))
-                                            .await;
-                                    } else {
-                                        from_debugger.send(None).await;
-                                    }
-                                }
-                            }
-                        }
-                    });
-
-                    let repl =
-                        spawn_local(async move {
-                            let mut repl = Repl::builder()
-                    .add("step", Command::new(
-                        "step to the next ACIR opcode",
-                        vec![],
-                        Box::new(
-                            DebuggerCommandHandler::new(
-                                to_debugger.clone(),
-                                ReplDebuggerMessageType::StepIntoACIR
-                            )
-                        )
-                    ))
-                    .add("into", Command::new(
-                        "step into to the next opcode",
-                        vec![],
-                        Box::new(
-                            DebuggerCommandHandler::new(
-                                to_debugger.clone(),
-                                ReplDebuggerMessageType::StepIntoOpcode
-                            )
-                        )
-                    ))
-                    .add("next", Command::new(
-                        "step until a new source location is reached",
-                        vec![],
-                        Box::new(
-                            DebuggerCommandHandler::new(
-                                to_debugger.clone(),
-                                ReplDebuggerMessageType::Next
-                            )
-                        )
-                    ))
-                    .add("continue", Command::new(
-                        "continue execution until the end of the program",
-                        vec![],
-                        Box::new(
-                            DebuggerCommandHandler::new(
-                                to_debugger.clone(),
-                                ReplDebuggerMessageType::Continue
-                            )
-                        )
-                    ))
-                    .add("restart", Command::new(
-                        "restart the debugging session",
-                        vec![],
-                        Box::new(
-                            DebuggerCommandHandler::new(
-                                to_debugger.clone(),
-                                ReplDebuggerMessageType::Restart
-                            )
-                        )
-                    ))
-                    .add("opcodes", Command::new(
-                        "display ACIR opcodes",
-                        vec![],
-                        Box::new(
-                            DebuggerCommandHandler::new(
-                                to_debugger.clone(),
-                                ReplDebuggerMessageType::DisplayACIROpcodes
-                            )
-                        )
-                    ))
-                    .add("witness", Command::new(
-                        "show witness map",
-                        vec![],
-                        Box::new(
-                            DebuggerCommandHandler::new(
-                                to_debugger.clone(),
-                                ReplDebuggerMessageType::ShowWitnessMap
-                            )
-                        )
-                    ))
-                    .add("registers", Command::new(
-                        "show Brillig registers (valid when executing a Brillig block)",
-                        vec![],
-                        Box::new(
-                            DebuggerCommandHandler::new(
-                                to_debugger.clone(),
-                                ReplDebuggerMessageType::ShowBrilligRegisters
-                            )
-                        )
-                    ))
-                    .add("memory", Command::new(
-                        "show Brillig memory (valid when executing a Brillig block)",
-                        vec![],
-                        Box::new(
-                            DebuggerCommandHandler::new(
-                                to_debugger.clone(),
-                                ReplDebuggerMessageType::ShowBrilligMemory
-                            )
-                        )
-                    ))
-                    .add("witness", Command::new(
-                        "display a single witness from the witness map",
-                        vec![CommandArgInfo::new_with_name(CommandArgType::I32, "index")],
-                        Box::new(
-                            DebuggerCommandHandler::new(
-                                to_debugger.clone(),
-                                ReplDebuggerMessageType::DisplaySingleWitness
-                            )
-                        )
-                    ))
-                    .add("witness", Command::new(
-                        "update a witness with the given value",
-                        vec![
-                            CommandArgInfo::new_with_name(CommandArgType::I32, "index"),
-                            CommandArgInfo::new_with_name(CommandArgType::String, "value"),
-                        ],
-                        Box::new(
-                            DebuggerCommandHandler::new(
-                                to_debugger.clone(),
-                                ReplDebuggerMessageType::UpdateWitness,
-                            )
-                        )
-                    ))
-                    .add("regset", Command::new(
-                        "update a Brillig register with the given value",
-                        vec![
-                            CommandArgInfo::new_with_name(CommandArgType::I32, "index"),
-                            CommandArgInfo::new_with_name(CommandArgType::String, "value"),
-                        ],
-                        Box::new(
-                            DebuggerCommandHandler::new(
-                                to_debugger.clone(),
-                                ReplDebuggerMessageType::RegSet,
-                            )
-                        )
-                    ))
-                    .add("memset", Command::new(
-                        "update a Brillig memory cell with the given value",
-                        vec![
-                            CommandArgInfo::new_with_name(CommandArgType::I32, "index"),
-                            CommandArgInfo::new_with_name(CommandArgType::String, "value"),
-                        ],
-                        Box::new(
-                            DebuggerCommandHandler::new(
-                                to_debugger.clone(),
-                                ReplDebuggerMessageType::MemSet,
-                            )
-                        )
-                    ))
-                    .add("break", Command::new(
-                        "add a breakpoint at an opcode location",
-                        vec![
-                            CommandArgInfo::new_with_name(CommandArgType::Custom, "location"),
-                        ],
-                        Box::new(
-                            DebuggerCommandHandler::new(
-                                to_debugger.clone(),
-                                ReplDebuggerMessageType::BreakpointSet,
-                            )
-                        )
-                    ))
-                    .add("delete", Command::new(
-                        "delete breakpoint at an opcode location",
-                        vec![
-                            CommandArgInfo::new_with_name(CommandArgType::Custom, "location"),
-                        ],
-                        Box::new(
-                            DebuggerCommandHandler::new(
-                                to_debugger.clone(),
-                                ReplDebuggerMessageType::BreakpointDelete,
-                            )
-                        )
-                    ))
-                    .build().expect("Debugger error");
-
-                            let mut repl_status = LoopStatus::Continue;
-                            while repl_status == LoopStatus::Continue {
-                                repl_status = repl.next().await.expect("Debugger REPL error");
-
-                                //TODO: we probably need to change mini_async_repl's
-                                //blocking readline to avoid this
-                                tokio::task::yield_now().await;
-                            }
-
-                            to_debugger.send(ReplDebuggerMessage::Finalize).await;
-                        });
-
-                    // The debugger observer thread monitors finalization
-                    // of the debugger.
-                    // When the debugger emits an Option<WitnessMap> it is
-                    // bubbled so Nargo decides what to do with that result.
-                    let debugger_observer = spawn_local(async move {
-                        while let Some(debugger_msg) = receive_from_debugger.recv().await {
-                            return debugger_msg;
-                        }
-
-                        return None;
-                    });
-
-                    debugger.await.unwrap();
-                    repl.await.unwrap();
-
-                    return match debugger_observer.await {
-                        Ok(r) => Ok(r),
-                        Err(_e) => Ok(None),
+                    let debug_artifact = DebugArtifact {
+                        debug_symbols: vec![compiled_program.debug.clone()],
+                        file_map: compiled_program.file_map.clone(),
+                        warnings: compiled_program.warnings.clone(),
                     };
-                })
-                .await;
 
-        return result;
+                    let mut repl_debugger = ReplDebugger::new(
+                        &blackbox_solver,
+                        &compiled_program.circuit,
+                        &debug_artifact,
+                        initial_witness,
+                    );
+
+                    repl_debugger.show_current_vm_status();
+
+                    while let Some(msg) = debugger_inbox.recv().await {
+                        match msg {
+                            ReplDebuggerMessage::StepIntoOpcode => {
+                                repl_debugger.step_into_opcode().await;
+                            }
+                            ReplDebuggerMessage::StepIntoACIR => {
+                                repl_debugger.step_acir_opcode().await;
+                            }
+                            ReplDebuggerMessage::Next => {
+                                repl_debugger.next().await;
+                            }
+                            ReplDebuggerMessage::Continue => {
+                                repl_debugger.cont().await;
+                            }
+                            ReplDebuggerMessage::Restart => {
+                                repl_debugger.restart_session();
+                            }
+                            ReplDebuggerMessage::DisplayACIROpcodes => {
+                                repl_debugger.display_opcodes();
+                            }
+                            ReplDebuggerMessage::ShowWitnessMap => {
+                                repl_debugger.show_witness_map();
+                            }
+                            ReplDebuggerMessage::ShowBrilligRegisters => {
+                                repl_debugger.show_brillig_registers();
+                            }
+                            ReplDebuggerMessage::ShowBrilligMemory => {
+                                repl_debugger.show_brillig_memory();
+                            }
+                            ReplDebuggerMessage::DisplaySingleWitness { index } => {
+                                repl_debugger.show_witness(index);
+                            }
+                            ReplDebuggerMessage::UpdateWitness { index, new_value } => {
+                                repl_debugger.update_witness(index, new_value);
+                            }
+                            ReplDebuggerMessage::RegSet { index, new_value } => {
+                                repl_debugger.set_brillig_register(index, new_value);
+                            }
+                            ReplDebuggerMessage::MemSet { index, new_value } => {
+                                repl_debugger.write_brillig_memory(index, new_value);
+                            }
+                            ReplDebuggerMessage::BreakpointSet { location } => {
+                                repl_debugger.add_breakpoint_at(location);
+                            }
+                            ReplDebuggerMessage::BreakpointDelete { location } => {
+                                repl_debugger.delete_breakpoint_at(location);
+                            }
+                            ReplDebuggerMessage::Finalize => {
+                                if repl_debugger.is_solved() {
+                                    from_debugger.send(Some(repl_debugger.get_witness_map())).await;
+                                } else {
+                                    from_debugger.send(None).await;
+                                }
+                            }
+                        }
+                    }
+                });
+
+                let repl = spawn_local(async move {
+                    let mut repl = Repl::builder()
+                        .add(
+                            "step",
+                            Command::new(
+                                "step to the next ACIR opcode",
+                                vec![],
+                                Box::new(DebuggerCommandHandler::new(
+                                    to_debugger.clone(),
+                                    ReplDebuggerMessageType::StepIntoACIR,
+                                )),
+                            ),
+                        )
+                        .add(
+                            "into",
+                            Command::new(
+                                "step into to the next opcode",
+                                vec![],
+                                Box::new(DebuggerCommandHandler::new(
+                                    to_debugger.clone(),
+                                    ReplDebuggerMessageType::StepIntoOpcode,
+                                )),
+                            ),
+                        )
+                        .add(
+                            "next",
+                            Command::new(
+                                "step until a new source location is reached",
+                                vec![],
+                                Box::new(DebuggerCommandHandler::new(
+                                    to_debugger.clone(),
+                                    ReplDebuggerMessageType::Next,
+                                )),
+                            ),
+                        )
+                        .add(
+                            "continue",
+                            Command::new(
+                                "continue execution until the end of the program",
+                                vec![],
+                                Box::new(DebuggerCommandHandler::new(
+                                    to_debugger.clone(),
+                                    ReplDebuggerMessageType::Continue,
+                                )),
+                            ),
+                        )
+                        .add(
+                            "restart",
+                            Command::new(
+                                "restart the debugging session",
+                                vec![],
+                                Box::new(DebuggerCommandHandler::new(
+                                    to_debugger.clone(),
+                                    ReplDebuggerMessageType::Restart,
+                                )),
+                            ),
+                        )
+                        .add(
+                            "opcodes",
+                            Command::new(
+                                "display ACIR opcodes",
+                                vec![],
+                                Box::new(DebuggerCommandHandler::new(
+                                    to_debugger.clone(),
+                                    ReplDebuggerMessageType::DisplayACIROpcodes,
+                                )),
+                            ),
+                        )
+                        .add(
+                            "witness",
+                            Command::new(
+                                "show witness map",
+                                vec![],
+                                Box::new(DebuggerCommandHandler::new(
+                                    to_debugger.clone(),
+                                    ReplDebuggerMessageType::ShowWitnessMap,
+                                )),
+                            ),
+                        )
+                        .add(
+                            "registers",
+                            Command::new(
+                                "show Brillig registers (valid when executing a Brillig block)",
+                                vec![],
+                                Box::new(DebuggerCommandHandler::new(
+                                    to_debugger.clone(),
+                                    ReplDebuggerMessageType::ShowBrilligRegisters,
+                                )),
+                            ),
+                        )
+                        .add(
+                            "memory",
+                            Command::new(
+                                "show Brillig memory (valid when executing a Brillig block)",
+                                vec![],
+                                Box::new(DebuggerCommandHandler::new(
+                                    to_debugger.clone(),
+                                    ReplDebuggerMessageType::ShowBrilligMemory,
+                                )),
+                            ),
+                        )
+                        .add(
+                            "witness",
+                            Command::new(
+                                "display a single witness from the witness map",
+                                vec![CommandArgInfo::new_with_name(CommandArgType::I32, "index")],
+                                Box::new(DebuggerCommandHandler::new(
+                                    to_debugger.clone(),
+                                    ReplDebuggerMessageType::DisplaySingleWitness,
+                                )),
+                            ),
+                        )
+                        .add(
+                            "witness",
+                            Command::new(
+                                "update a witness with the given value",
+                                vec![
+                                    CommandArgInfo::new_with_name(CommandArgType::I32, "index"),
+                                    CommandArgInfo::new_with_name(CommandArgType::String, "value"),
+                                ],
+                                Box::new(DebuggerCommandHandler::new(
+                                    to_debugger.clone(),
+                                    ReplDebuggerMessageType::UpdateWitness,
+                                )),
+                            ),
+                        )
+                        .add(
+                            "regset",
+                            Command::new(
+                                "update a Brillig register with the given value",
+                                vec![
+                                    CommandArgInfo::new_with_name(CommandArgType::I32, "index"),
+                                    CommandArgInfo::new_with_name(CommandArgType::String, "value"),
+                                ],
+                                Box::new(DebuggerCommandHandler::new(
+                                    to_debugger.clone(),
+                                    ReplDebuggerMessageType::RegSet,
+                                )),
+                            ),
+                        )
+                        .add(
+                            "memset",
+                            Command::new(
+                                "update a Brillig memory cell with the given value",
+                                vec![
+                                    CommandArgInfo::new_with_name(CommandArgType::I32, "index"),
+                                    CommandArgInfo::new_with_name(CommandArgType::String, "value"),
+                                ],
+                                Box::new(DebuggerCommandHandler::new(
+                                    to_debugger.clone(),
+                                    ReplDebuggerMessageType::MemSet,
+                                )),
+                            ),
+                        )
+                        .add(
+                            "break",
+                            Command::new(
+                                "add a breakpoint at an opcode location",
+                                vec![CommandArgInfo::new_with_name(
+                                    CommandArgType::Custom,
+                                    "location",
+                                )],
+                                Box::new(DebuggerCommandHandler::new(
+                                    to_debugger.clone(),
+                                    ReplDebuggerMessageType::BreakpointSet,
+                                )),
+                            ),
+                        )
+                        .add(
+                            "delete",
+                            Command::new(
+                                "delete breakpoint at an opcode location",
+                                vec![CommandArgInfo::new_with_name(
+                                    CommandArgType::Custom,
+                                    "location",
+                                )],
+                                Box::new(DebuggerCommandHandler::new(
+                                    to_debugger.clone(),
+                                    ReplDebuggerMessageType::BreakpointDelete,
+                                )),
+                            ),
+                        )
+                        .build()
+                        .expect("Debugger error");
+
+                    let mut repl_status = LoopStatus::Continue;
+                    while repl_status == LoopStatus::Continue {
+                        repl_status = repl.next().await.expect("Debugger REPL error");
+
+                        //TODO: we probably need to change mini_async_repl's
+                        //blocking readline to avoid this
+                        tokio::task::yield_now().await;
+                    }
+
+                    to_debugger.send(ReplDebuggerMessage::Finalize).await;
+                });
+
+                // The debugger observer thread monitors finalization
+                // of the debugger.
+                // When the debugger emits an Option<WitnessMap> it is
+                // bubbled so Nargo decides what to do with that result.
+                let debugger_observer = spawn_local(async move {
+                    if let Some(debugger_msg) = receive_from_debugger.recv().await {
+                        return debugger_msg;
+                    }
+
+                    None
+                });
+
+                debugger.await.unwrap();
+                repl.await.unwrap();
+
+                match debugger_observer.await {
+                    Ok(r) => Ok(r),
+                    Err(_e) => Ok(None),
+                }
+            })
+            .await
     })
 }
