@@ -1,13 +1,13 @@
 use std::ops::Range;
 
-use acvm::{BlackBoxFunctionSolver, FieldElement};
 use acvm::acir::circuit::{Circuit, Opcode, OpcodeLocation};
 use acvm::acir::native_types::{Witness, WitnessMap};
+use acvm::{BlackBoxFunctionSolver, FieldElement};
 use nargo::{artifacts::debug::DebugArtifact, ops::DefaultForeignCallExecutor};
 use noirc_errors::Location;
 
-use owo_colors::OwoColorize;
 use codespan_reporting::files::Files;
+use owo_colors::OwoColorize;
 
 use crate::context::{DebugCommandResult, DebugContext};
 
