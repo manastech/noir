@@ -417,8 +417,7 @@ pub fn run(
 
     let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
 
-    // Using single threaded environment to
-    // relax a bit the demands on our type bounds
+    // We use a single threaded environment to relax a bit the demands on our type bounds.
     let local = LocalSet::new();
 
     rt.block_on(async {
@@ -427,30 +426,25 @@ pub fn run(
                 let (to_debugger, mut debugger_inbox) = mpsc::channel::<ReplDebuggerMessage>(1);
                 let (debugger_outbox, mut from_debugger) = mpsc::channel::<Option<WitnessMap>>(1);
 
+                // Debugger CLI core:
+                // - interacts with debugger runtime and prints to terminal
+                // - receives ReplDebuggerMessage's
+                // - emits a WitnessMap if the circuit succeeds
                 let debugger = spawn_debugger(
                     debugger_inbox,
                     debugger_outbox,
                     compiled_program,
                     initial_witness,
                 );
-                let repl = spawn_repl(to_debugger);
 
-                // The debugger observer thread monitors finalization
-                // of the debugger.
-                // When the debugger emits an Option<WitnessMap> it is
-                // bubbled so Nargo decides what to do with that result.
-                let debugger_observer = spawn_local(async move {
-                    if let Some(debugger_msg) = from_debugger.recv().await {
-                        return debugger_msg;
-                    }
-
-                    None
-                });
+                // Debugger REPL loop:
+                // - sets up available REPL commands
+                // - translates user input to debugger commands
+                // - emits ReplDebuggerMessage's to drive the debugger
+                let repl = spawn_repl(to_debugger, from_debugger);
 
                 debugger.await.unwrap();
-                repl.await.unwrap();
-
-                match debugger_observer.await {
+                match repl.await {
                     Ok(r) => Ok(r),
                     Err(_e) => Ok(None),
                 }
@@ -543,7 +537,10 @@ fn spawn_debugger(
     })
 }
 
-fn spawn_repl(to_debugger: Sender<ReplDebuggerMessage>) -> tokio::task::JoinHandle<()> {
+fn spawn_repl(
+    to_debugger: Sender<ReplDebuggerMessage>,
+    mut from_debugger: Receiver<Option<WitnessMap>>,
+) -> tokio::task::JoinHandle<Option<WitnessMap>> {
     spawn_local(async move {
         let mut repl = Repl::builder()
             .add(
@@ -733,6 +730,12 @@ fn spawn_repl(to_debugger: Sender<ReplDebuggerMessage>) -> tokio::task::JoinHand
         }
 
         to_debugger.send(ReplDebuggerMessage::Finalize).await;
+
+        if let Some(debugger_msg) = from_debugger.recv().await {
+            return debugger_msg;
+        }
+
+        None
     })
 }
 
