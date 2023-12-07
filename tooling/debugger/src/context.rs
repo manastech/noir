@@ -10,6 +10,7 @@ use nargo::artifacts::debug::{DebugArtifact, DebugVars};
 use nargo::errors::{ExecutionError, Location};
 use nargo::ops::ForeignCallExecutor;
 use nargo::NargoError;
+use noirc_printable_type::{PrintableType,PrintableValue};
 
 use std::collections::{hash_set::Iter, HashSet};
 
@@ -26,7 +27,7 @@ pub(super) struct DebugContext<'a, B: BlackBoxFunctionSolver> {
     brillig_solver: Option<BrilligSolver<'a, B>>,
     foreign_call_executor: Box<dyn ForeignCallExecutor + 'a>,
     debug_artifact: &'a DebugArtifact,
-    pub debug_vars: DebugVars,
+    debug_vars: DebugVars,
     breakpoints: HashSet<OpcodeLocation>,
 }
 
@@ -379,6 +380,10 @@ impl<'a, B: BlackBoxFunctionSolver> DebugContext<'a, B> {
         if let Some(solver) = self.brillig_solver.as_mut() {
             solver.write_memory_at(ptr, value.into());
         }
+    }
+
+    pub(super) fn get_variables(&self) -> Vec<(&str, &PrintableValue, &PrintableType)> {
+        return self.debug_vars.get_variables();
     }
 
     fn breakpoint_reached(&self) -> bool {

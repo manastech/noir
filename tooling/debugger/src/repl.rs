@@ -379,6 +379,13 @@ impl<'a, B: BlackBoxFunctionSolver> ReplDebugger<'a, B> {
         self.context.write_brillig_memory(index, field_value);
     }
 
+    pub fn show_vars(&self) {
+        let vars = self.context.get_variables();
+        println!["{}", vars.iter().map(|(var_name, value, var_type)| {
+            format!("{var_name}:{var_type:?}={value:?}")
+        }).collect::<Vec<String>>().join(", ")];
+    }
+
     fn is_solved(&self) -> bool {
         self.context.is_solved()
     }
@@ -564,11 +571,7 @@ pub fn run<B: BlackBoxFunctionSolver>(
             command! {
                 "show variable values available at this point in execution",
                 () => || {
-                    let mut ctx = ref_context.borrow_mut();
-                    let vars = ctx.context.debug_vars.get_variables();
-                    println!["{}", vars.iter().map(|(var_name, value, var_type)| {
-                        format!("{var_name}:{var_type:?}={value:?}")
-                    }).collect::<Vec<String>>().join(", ")];
+                    ref_context.borrow_mut().show_vars();
                     Ok(CommandStatus::Done)
                 }
             },
