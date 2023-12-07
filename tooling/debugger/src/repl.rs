@@ -4,6 +4,10 @@ use acvm::acir::circuit::{Circuit, Opcode, OpcodeLocation};
 use acvm::acir::native_types::{Witness, WitnessMap};
 use acvm::{BlackBoxFunctionSolver, FieldElement};
 
+use noirc_driver::CompiledProgram;
+
+use noirc_errors::Location;
+
 use nargo::{artifacts::debug::DebugArtifact, ops::DefaultForeignCallExecutor, NargoError};
 
 use mini_async_repl::{
@@ -16,22 +20,18 @@ use mini_async_repl::{
 };
 
 use codespan_reporting::files::Files;
-use noirc_errors::Location;
 
 use owo_colors::OwoColorize;
 
 use std::ops::Range;
 
-use noirc_driver::CompiledProgram;
-
-use tokio::sync::mpsc;
-use tokio::sync::mpsc::Sender;
-use tokio::task::spawn_local;
-use tokio::task::LocalSet;
-
-use std::pin::Pin;
+use tokio::{
+    sync::mpsc::Sender,
+    task::{spawn_local, LocalSet},
+};
 
 use std::future::Future;
+use std::pin::Pin;
 
 pub struct ReplDebugger<'a, B: BlackBoxFunctionSolver> {
     context: DebugContext<'a, B>,
