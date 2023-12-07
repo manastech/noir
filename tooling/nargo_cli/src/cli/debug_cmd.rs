@@ -7,7 +7,6 @@ use nargo::constants::PROVER_INPUT_FILE;
 use nargo::package::Package;
 use nargo_toml::{get_package_manifest, resolve_workspace_from_toml, PackageSelection};
 use noirc_abi::input_parser::{Format, InputValue};
-use noirc_abi::InputMap;
 use noirc_driver::{CompileOptions, CompiledProgram, NOIR_ARTIFACT_VERSION_STRING};
 use noirc_frontend::graph::CrateName;
 
@@ -65,22 +64,25 @@ pub(crate) fn run(
         &opcode_support,
     )?;
 
-    run_async(package, compiled_program, &args.prover_name, &args.witness_name, target_dir)
+    debug_program_and_save_witness(
+        package,
+        compiled_program,
+        &args.prover_name,
+        &args.witness_name,
+        target_dir,
+    )
 }
 
-fn run_async(
+fn debug_program_and_save_witness(
     package: &Package,
     program: CompiledProgram,
     prover_name: &str,
     witness_name: &Option<String>,
-    target_dir: &PathBuf,
+    witness_target_dir: &PathBuf,
 ) -> Result<(), CliError> {
-    // use tokio::runtime::Builder;
-    // let runtime = Builder::new_current_thread().enable_all().build().unwrap();
-
-    // runtime.block_on(async {
     println!("[{}] Starting debugger", package.name);
-    let (return_value, solved_witness) = debug_program_and_decode(program, package, prover_name)?;
+    let (return_value, solved_witness) =
+        debug_program_and_decode_witness(program, package, prover_name)?;
 
     if let Some(solved_witness) = solved_witness {
         println!("[{}] Circuit witness successfully solved", package.name);
@@ -90,7 +92,8 @@ fn run_async(
         }
 
         if let Some(witness_name) = witness_name {
-            let witness_path = save_witness_to_dir(solved_witness, witness_name, target_dir)?;
+            let witness_path =
+                save_witness_to_dir(solved_witness, witness_name, witness_target_dir)?;
 
             println!("[{}] Witness saved to {}", package.name, witness_path.display());
         }
@@ -99,10 +102,9 @@ fn run_async(
     }
 
     Ok(())
-    // })
 }
 
-fn debug_program_and_decode(
+fn debug_program_and_decode_witness(
     program: CompiledProgram,
     package: &Package,
     prover_name: &str,
@@ -110,7 +112,12 @@ fn debug_program_and_decode(
     // Parse the initial witness values from Prover.toml
     let (inputs_map, _) =
         read_inputs_from_file(&package.root_dir, prover_name, Format::Toml, &program.abi)?;
-    let solved_witness = debug_program(&program, &inputs_map)?;
+
+    #[allow(deprecated)]
+    let initial_witness = program.abi.encode(&inputs_map, None)?;
+
+    let solved_witness =
+        noir_debugger::debug_with_repl(&program, initial_witness).map_err(CliError::from)?;
     let public_abi = program.abi.public_abi();
 
     match solved_witness {
@@ -120,14 +127,4 @@ fn debug_program_and_decode(
         }
         None => Ok((None, None)),
     }
-}
-
-pub(crate) fn debug_program(
-    compiled_program: &CompiledProgram,
-    inputs_map: &InputMap,
-) -> Result<Option<WitnessMap>, CliError> {
-    #[allow(deprecated)]
-    let initial_witness = compiled_program.abi.encode(inputs_map, None)?;
-
-    noir_debugger::debug_circuit(compiled_program, initial_witness).map_err(CliError::from)
 }
