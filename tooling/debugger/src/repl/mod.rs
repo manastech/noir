@@ -26,6 +26,45 @@ use std::pin::Pin;
 
 use repl_debugger::ReplDebugger;
 
+#[derive(Debug, Clone)]
+enum ReplDebuggerMessageType {
+    StepIntoOpcode,
+    StepIntoACIR,
+    Next,
+    Continue,
+    Restart,
+    DisplayACIROpcodes,
+    ShowWitnessMap,
+    ShowBrilligRegisters,
+    ShowBrilligMemory,
+    DisplaySingleWitness,
+    UpdateWitness,
+    RegSet,
+    MemSet,
+    BreakpointSet,
+    BreakpointDelete,
+}
+
+#[derive(Debug, Clone)]
+enum ReplDebuggerMessage {
+    StepIntoOpcode,
+    StepIntoACIR,
+    Next,
+    Continue,
+    Restart,
+    DisplayACIROpcodes,
+    ShowWitnessMap,
+    ShowBrilligRegisters,
+    ShowBrilligMemory,
+    DisplaySingleWitness { index: u32 },
+    UpdateWitness { index: u32, new_value: String },
+    RegSet { index: usize, new_value: String },
+    MemSet { index: usize, new_value: String },
+    BreakpointSet { location: OpcodeLocation },
+    BreakpointDelete { location: OpcodeLocation },
+    Finalize,
+}
+
 pub fn run(
     compiled_program: &CompiledProgram,
     initial_witness: WitnessMap,
@@ -455,43 +494,4 @@ impl ExecuteCommand for DebuggerCommandHandler {
 
         Box::pin(self.handle_command(debugger_msg))
     }
-}
-
-#[derive(Debug, Clone)]
-enum ReplDebuggerMessageType {
-    StepIntoOpcode,
-    StepIntoACIR,
-    Next,
-    Continue,
-    Restart,
-    DisplayACIROpcodes,
-    ShowWitnessMap,
-    ShowBrilligRegisters,
-    ShowBrilligMemory,
-    DisplaySingleWitness,
-    UpdateWitness,
-    RegSet,
-    MemSet,
-    BreakpointSet,
-    BreakpointDelete,
-}
-
-#[derive(Debug, Clone)]
-enum ReplDebuggerMessage {
-    StepIntoOpcode,
-    StepIntoACIR,
-    Next,
-    Continue,
-    Restart,
-    DisplayACIROpcodes,
-    ShowWitnessMap,
-    ShowBrilligRegisters,
-    ShowBrilligMemory,
-    DisplaySingleWitness { index: u32 },
-    UpdateWitness { index: u32, new_value: String },
-    RegSet { index: usize, new_value: String },
-    MemSet { index: usize, new_value: String },
-    BreakpointSet { location: OpcodeLocation },
-    BreakpointDelete { location: OpcodeLocation },
-    Finalize,
 }
