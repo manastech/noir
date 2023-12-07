@@ -169,7 +169,7 @@ impl DefaultForeignCallExecutor {
                     Some(ds),
                     ForeignCallParam::Single(var_id_value),
                     ForeignCallParam::Array(indexes_value),
-                    ForeignCallParam::Single(value),
+                    ForeignCallParam::Single(_value),
                 ) = (debug_vars, fcp_var_id, fcp_indexes, fcp_value)
                 {
                     let var_id = var_id_value.to_u128() as u32;

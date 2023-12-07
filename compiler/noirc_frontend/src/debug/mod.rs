@@ -576,12 +576,12 @@ fn int_expr(x: u128) -> ast::Expression {
     }
 }
 
-fn str_expr(s: &str) -> ast::Expression {
-    ast::Expression {
-        kind: ast::ExpressionKind::Literal(ast::Literal::Str(s.to_string())),
-        span: none_span(),
-    }
-}
+// fn str_expr(s: &str) -> ast::Expression {
+//     ast::Expression {
+//         kind: ast::ExpressionKind::Literal(ast::Literal::Str(s.to_string())),
+//         span: none_span(),
+//     }
+// }
 
 fn byte_array_expr(bytes: &[u8]) -> ast::Expression {
     vec_from_slice(&ast::Expression {

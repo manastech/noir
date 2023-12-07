@@ -204,17 +204,17 @@ impl Context {
         module_id.module(&self.def_maps)
     }
 
-    /// Returns the next available storage slot in the given module.
-    /// Returns None if the given module is not a contract module.
-    fn next_storage_slot(&mut self, module_id: def_map::ModuleId) -> Option<StorageSlot> {
-        let module = self.module(module_id);
+    // /// Returns the next available storage slot in the given module.
+    // /// Returns None if the given module is not a contract module.
+    // fn next_storage_slot(&mut self, module_id: def_map::ModuleId) -> Option<StorageSlot> {
+    //     let module = self.module(module_id);
 
-        module.is_contract.then(|| {
-            let next_slot = self.storage_slots.entry(module_id).or_insert(0);
-            *next_slot += 1;
-            *next_slot
-        })
-    }
+    //     module.is_contract.then(|| {
+    //         let next_slot = self.storage_slots.entry(module_id).or_insert(0);
+    //         *next_slot += 1;
+    //         *next_slot
+    //     })
+    // }
 
     /// Given a FileId, fetch the File, from the FileManager and parse its content,
     /// applying sorting and debug transforms if debug mode is enabled.
