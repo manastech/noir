@@ -18,12 +18,12 @@ use dap::requests::{Command, Request, SetBreakpointsArguments};
 use dap::responses::{
     ContinueResponse, DisassembleResponse, ResponseBody, ScopesResponse, SetBreakpointsResponse,
     SetExceptionBreakpointsResponse, SetInstructionBreakpointsResponse, StackTraceResponse,
-    ThreadsResponse,
+    ThreadsResponse, VariablesResponse,
 };
 use dap::server::Server;
 use dap::types::{
-    Breakpoint, DisassembledInstruction, Source, StackFrame, SteppingGranularity,
-    StoppedEventReason, Thread,
+    Breakpoint, DisassembledInstruction, Scope, Source, StackFrame, SteppingGranularity,
+    StoppedEventReason, Thread, Variable,
 };
 use nargo::artifacts::debug::DebugArtifact;
 use nargo::ops::DefaultForeignCallExecutor;
@@ -198,10 +198,10 @@ impl<'a, R: Read, W: Write, B: BlackBoxFunctionSolver> DapSession<'a, R, W, B> {
                     self.handle_continue(req)?;
                 }
                 Command::Scopes(_) => {
-                    // FIXME
-                    self.server.respond(
-                        req.success(ResponseBody::Scopes(ScopesResponse { scopes: vec![] })),
-                    )?;
+                    self.handle_scopes(req)?;
+                }
+                Command::Variables(ref _args) => {
+                    self.handle_variables(req)?;
                 }
                 _ => {
                     eprintln!("ERROR: unhandled command: {:?}", req.command);
@@ -544,6 +544,42 @@ impl<'a, R: Read, W: Write, B: BlackBoxFunctionSolver> DapSession<'a, R, W, B> {
         self.server.respond(
             req.success(ResponseBody::SetBreakpoints(SetBreakpointsResponse { breakpoints })),
         )?;
+        Ok(())
+    }
+
+    fn handle_scopes(&mut self, req: Request) -> Result<(), ServerError> {
+        self.server.respond(req.success(ResponseBody::Scopes(ScopesResponse {
+            scopes: vec![Scope {
+                name: String::from("Locals"),
+                variables_reference: 1,
+                ..Scope::default()
+            }],
+        })))?;
+        Ok(())
+    }
+
+    fn handle_variables(&mut self, req: Request) -> Result<(), ServerError> {
+        let Command::Variables(ref args) = req.command else {
+            unreachable!("handle_variables called on a different request");
+        };
+        if args.variables_reference != 1 {
+            eprintln!(
+                "handle_variables with an unknown variables_reference {}",
+                args.variables_reference
+            );
+        }
+        let vars = self.context.get_variables();
+        let mut variables: Vec<_> = vars
+            .iter()
+            .map(|(name, value, _var_type)| Variable {
+                name: String::from(*name),
+                value: format!("{:?}", *value),
+                ..Variable::default()
+            })
+            .collect();
+        variables.sort_by(|a, b| a.name.partial_cmp(&b.name).unwrap());
+        self.server
+            .respond(req.success(ResponseBody::Variables(VariablesResponse { variables })))?;
         Ok(())
     }
 }
