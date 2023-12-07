@@ -108,7 +108,7 @@ fn run_tests<S: BlackBoxFunctionSolver>(
             .expect("Failed to write to stdout");
         writer.flush().expect("Failed to flush writer");
 
-        match run_test(blackbox_solver, &context, test_function, show_output, compile_options) {
+        match run_test(blackbox_solver, &mut context, test_function, show_output, compile_options) {
             TestStatus::Pass { .. } => {
                 writer
                     .set_color(ColorSpec::new().set_fg(Some(Color::Green)))

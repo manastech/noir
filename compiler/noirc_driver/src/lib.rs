@@ -13,7 +13,7 @@ use noirc_evaluator::{create_circuit, into_abi_params};
 use noirc_frontend::graph::{CrateId, CrateName};
 use noirc_frontend::hir::def_map::{Contract, CrateDefMap};
 use noirc_frontend::hir::Context;
-use noirc_frontend::monomorphization::monomorphize;
+use noirc_frontend::monomorphization::{monomorphize, monomorphize_debug};
 use noirc_frontend::node_interner::FuncId;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -59,6 +59,9 @@ pub struct CompileOptions {
     /// Suppress warnings
     #[arg(long, conflicts_with = "deny_warnings")]
     pub silence_warnings: bool,
+
+    /// Insert debug symbols to inspect variables
+    pub debug: bool,
 }
 
 /// Helper type used to signify where only warnings are expected in file diagnostics
@@ -250,7 +253,7 @@ fn has_errors(errors: &[FileDiagnostic], deny_warnings: bool) -> bool {
 
 /// Compile all of the functions associated with a Noir contract.
 fn compile_contract_inner(
-    context: &Context,
+    context: &mut Context,
     contract: Contract,
     options: &CompileOptions,
 ) -> Result<CompiledContract, ErrorsAndWarnings> {
@@ -325,13 +328,17 @@ fn compile_contract_inner(
 ///
 /// This function assumes [`check_crate`] is called beforehand.
 pub fn compile_no_check(
-    context: &Context,
+    context: &mut Context,
     options: &CompileOptions,
     main_function: FuncId,
     cached_program: Option<CompiledProgram>,
     force_compile: bool,
 ) -> Result<CompiledProgram, RuntimeError> {
-    let program = monomorphize(main_function, &context.def_interner);
+    let program = if options.debug {
+        monomorphize_debug(main_function, &mut context.def_interner, &context.debug_state.field_names)
+    } else {
+        monomorphize(main_function, &mut context.def_interner)
+    };
 
     let hash = fxhash::hash64(&program);
     let hashes_match = cached_program.as_ref().map_or(false, |program| program.hash == hash);

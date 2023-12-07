@@ -7,6 +7,7 @@ use std::collections::HashMap;
 pub struct DebugTypes {
     variables: HashMap<u32, (String, u32)>, // var_id => (var_name, type_id)
     types: HashMap<PrintableType, u32>,
+    id_to_type: HashMap<u32, PrintableType>,
     next_type_id: u32,
 }
 
@@ -16,10 +17,15 @@ impl DebugTypes {
         let type_id = self.types.get(&ptype).cloned().unwrap_or_else(|| {
             let type_id = self.next_type_id;
             self.next_type_id += 1;
-            self.types.insert(ptype, type_id);
+            self.types.insert(ptype.clone(), type_id);
+            self.id_to_type.insert(type_id, ptype);
             type_id
         });
         self.variables.insert(var_id, (var_name.to_string(), type_id));
+    }
+
+    pub fn get_type<'a>(&'a self, var_id: u32) -> Option<&'a PrintableType> {
+        self.id_to_type.get(&var_id)
     }
 }
 

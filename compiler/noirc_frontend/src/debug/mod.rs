@@ -11,7 +11,9 @@ use std::collections::HashMap;
 #[derive(Debug, Clone)]
 pub struct DebugState {
     pub variables: HashMap<u32, String>, // var_id => var_name
+    pub field_names: HashMap<u32, String>,
     next_var_id: u32,
+    next_field_name_id: u32,
     scope: Vec<HashMap<String,u32>>, // var_name => var_id
     pub enabled: bool,
 }
@@ -20,8 +22,10 @@ impl Default for DebugState {
     fn default() -> Self {
         Self {
             variables: HashMap::default(),
+            field_names: HashMap::default(),
             scope: vec![],
             next_var_id: 0,
+            next_field_name_id: 1,
             enabled: true, // TODO
         }
     }
@@ -40,6 +44,13 @@ impl DebugState {
         self.scope.iter().rev().find_map(|vars| {
             vars.get(var_name).copied()
         })
+    }
+
+    fn insert_field_name(&mut self, index: u32, field_name: &str) -> u32 {
+        let field_name_id = self.next_field_name_id;
+        self.next_field_name_id += 1;
+        self.field_names.insert(field_name_id, field_name.to_string());
+        field_name_id
     }
 
     fn walk_fn(&mut self, f: &mut ast::FunctionDefinition) {
@@ -155,7 +166,7 @@ impl DebugState {
                 span: none_span(),
             }),
             arguments: vec![
-                int_expr(var_id as u128),
+                uint_expr(var_id as u128),
                 expr,
             ],
         }));
@@ -174,7 +185,7 @@ impl DebugState {
                 }),
                 span: none_span(),
             }),
-            arguments: vec![int_expr(var_id as u128)],
+            arguments: vec![uint_expr(var_id as u128)],
         }));
         ast::Statement {
             kind: ast::StatementKind::Semi(ast::Expression { kind, span: none_span() }),
@@ -186,7 +197,6 @@ impl DebugState {
         &mut self,
         var_id: u32,
         indexes: &[ast::Expression],
-        fields: &[(u32,String)],
         expr: &ast::Expression,
     ) -> ast::Statement {
         let index_expr = ast::Expression {
@@ -195,32 +205,17 @@ impl DebugState {
             )),
             span: none_span(),
         };
-        let field_name_expr = ast::Expression {
-            kind: ast::ExpressionKind::Literal(ast::Literal::Array(
-                ast::ArrayLiteral::Standard(fields.iter().map(|(i,name)| {
-                    ast::Expression {
-                        kind: ast::ExpressionKind::Tuple(vec![
-                            int_expr(*i as u128),
-                            byte_array_expr(name.as_bytes()),
-                        ]),
-                        span: none_span(),
-                    }
-                }).collect()),
-            )),
-            span: none_span(),
-        };
         let kind = ast::ExpressionKind::Call(Box::new(ast::CallExpression {
             func: Box::new(ast::Expression {
                 kind: ast::ExpressionKind::Variable(ast::Path {
-                    segments: vec![ident("__debug_member_assign_placeholder")],
+                    segments: vec![ident("__debug_member_assign")],
                     kind: PathKind::Plain,
                 }),
                 span: none_span(),
             }),
             arguments: vec![
-                int_expr(var_id as u128),
+                uint_expr(var_id as u128),
                 vec_from_slice(&index_expr),
-                vec_from_slice(&field_name_expr),
                 expr.clone(),
             ],
         }));
@@ -337,8 +332,11 @@ impl DebugState {
                         },
                         ast::LValue::MemberAccess { object, field_name } => {
                             cursor = object;
-                            fields.push((indexes.len() as u32, field_name.0.contents.to_string()));
-                            indexes.push(int_expr(0u128)); // this 0 will get overwritten
+                            let field_name_id = self.insert_field_name(
+                                indexes.len() as u32,
+                                &field_name.0.contents,
+                            );
+                            indexes.push(sint_expr(-(field_name_id as i128)));
                         },
                         ast::LValue::Index { index, array } => {
                             cursor = array;
@@ -349,7 +347,7 @@ impl DebugState {
                         },
                     }
                 }
-                self.wrap_assign_member(var_id, &indexes, &fields, &id_expr(&ident("__debug_expr")))
+                self.wrap_assign_member(var_id, &indexes, &id_expr(&ident("__debug_expr")))
             },
         };
         let ret_kind = ast::StatementKind::Expression(id_expr(&ident("__debug_expr")));
@@ -507,12 +505,6 @@ impl DebugState {
             pub fn __debug_member_assign<T>(var_id: u32, indexes: __debug_Vec<u32>, value: T) {
                 __debug_member_assign_inner(var_id, indexes, value);
             }
-            pub fn __debug_member_assign_placeholder<T>(
-                _var_id: u32,
-                _indexes: __debug_Vec<u32>,
-                _field_names: __debug_Vec<__debug_Vec<u8>>,
-                _value: T
-            ) {}
 
             #[oracle(__debug_dereference_assign)]
             unconstrained fn __debug_dereference_assign_oracle<T>(_var_id: u32, _value: T) {}
@@ -569,7 +561,14 @@ fn id_expr(id: &ast::Ident) -> ast::Expression {
     }
 }
 
-fn int_expr(x: u128) -> ast::Expression {
+fn uint_expr(x: u128) -> ast::Expression {
+    ast::Expression {
+        kind: ast::ExpressionKind::Literal(ast::Literal::Integer(x.into())),
+        span: none_span(),
+    }
+}
+
+fn sint_expr(x: i128) -> ast::Expression {
     ast::Expression {
         kind: ast::ExpressionKind::Literal(ast::Literal::Integer(x.into())),
         span: none_span(),
@@ -586,7 +585,7 @@ fn str_expr(s: &str) -> ast::Expression {
 fn byte_array_expr(bytes: &[u8]) -> ast::Expression {
     vec_from_slice(&ast::Expression {
         kind: ast::ExpressionKind::Literal(ast::Literal::Array(ast::ArrayLiteral::Standard(
-            bytes.iter().map(|b| int_expr(*b as u128)).collect()
+            bytes.iter().map(|b| uint_expr(*b as u128)).collect()
         ))),
         span: none_span(),
     })
