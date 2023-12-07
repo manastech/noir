@@ -26,7 +26,7 @@ use owo_colors::OwoColorize;
 use std::ops::Range;
 
 use tokio::{
-    sync::mpsc::Sender,
+    sync::{mpsc, mpsc::Sender},
     task::{spawn_local, LocalSet},
 };
 
@@ -409,146 +409,6 @@ fn print_dimmed_line(line_number: usize, line: &str) {
     println!("{}", format!("{:>3} {:2} {}", line_number, "", line).dimmed());
 }
 
-struct DebuggerCommandHandler {
-    debugger_msg_type: ReplDebuggerMessageType,
-    debugger: Sender<ReplDebuggerMessage>,
-}
-impl DebuggerCommandHandler {
-    pub fn new(
-        debugger: Sender<ReplDebuggerMessage>,
-        debugger_msg_type: ReplDebuggerMessageType,
-    ) -> Self {
-        Self { debugger, debugger_msg_type }
-    }
-    async fn handle_command(
-        &mut self,
-        debugger_msg: ReplDebuggerMessage,
-    ) -> anyhow::Result<CommandStatus> {
-        {
-            self.debugger.send(debugger_msg).await;
-            anyhow::Ok(CommandStatus::Done)
-        }
-    }
-}
-impl ExecuteCommand for DebuggerCommandHandler {
-    fn execute(
-        &mut self,
-        args: Vec<String>,
-        args_info: Vec<CommandArgInfo>,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<CommandStatus>> + '_>> {
-        let valid = validate(args.clone(), args_info.clone());
-        if let Err(e) = valid {
-            return Box::pin(lift_validation_err(Err(e)));
-        }
-
-        let debugger_msg = match self.debugger_msg_type {
-            ReplDebuggerMessageType::StepIntoOpcode => ReplDebuggerMessage::StepIntoOpcode,
-            ReplDebuggerMessageType::StepIntoACIR => ReplDebuggerMessage::StepIntoACIR,
-            ReplDebuggerMessageType::Next => ReplDebuggerMessage::Next,
-            ReplDebuggerMessageType::Continue => ReplDebuggerMessage::Continue,
-            ReplDebuggerMessageType::Restart => ReplDebuggerMessage::Restart,
-            ReplDebuggerMessageType::DisplayACIROpcodes => ReplDebuggerMessage::DisplayACIROpcodes,
-            ReplDebuggerMessageType::ShowWitnessMap => ReplDebuggerMessage::ShowWitnessMap,
-            ReplDebuggerMessageType::ShowBrilligRegisters => {
-                ReplDebuggerMessage::ShowBrilligRegisters
-            }
-            ReplDebuggerMessageType::ShowBrilligMemory => ReplDebuggerMessage::ShowBrilligMemory,
-            ReplDebuggerMessageType::DisplaySingleWitness => {
-                let index = args[0].parse::<u32>();
-
-                match index {
-                    Ok(index) => ReplDebuggerMessage::DisplaySingleWitness { index },
-                    _ => panic!("Unreachable, validator should have covered this"),
-                }
-            }
-            ReplDebuggerMessageType::UpdateWitness => {
-                let index = args[0].parse::<u32>();
-
-                match index {
-                    Ok(index) => {
-                        ReplDebuggerMessage::UpdateWitness { index, new_value: args[1].clone() }
-                    }
-                    _ => panic!("Unreachable, validator should have covered this"),
-                }
-            }
-            ReplDebuggerMessageType::RegSet => {
-                let index = args[0].parse::<usize>();
-
-                match index {
-                    Ok(index) => ReplDebuggerMessage::RegSet { index, new_value: args[1].clone() },
-                    _ => panic!("Unreachable, validator should have covered this"),
-                }
-            }
-            ReplDebuggerMessageType::MemSet => {
-                let index = args[0].parse::<usize>();
-
-                match index {
-                    Ok(index) => ReplDebuggerMessage::MemSet { index, new_value: args[1].clone() },
-                    _ => panic!("Unreachable, validator should have covered this"),
-                }
-            }
-            ReplDebuggerMessageType::BreakpointSet => {
-                let location = args[0].parse::<OpcodeLocation>();
-                match location {
-                    Ok(location) => ReplDebuggerMessage::BreakpointSet { location },
-                    // TODO: not true, I think
-                    // TODO: check how params are displayed now in repl, and fix mini_async_repl
-                    // if necessary
-                    _ => panic!("Unreachable, validator should have covered this"),
-                }
-            }
-            ReplDebuggerMessageType::BreakpointDelete => {
-                let location = args[0].parse::<OpcodeLocation>();
-                match location {
-                    Ok(location) => ReplDebuggerMessage::BreakpointDelete { location },
-                    _ => panic!("Unreachable, validator should have covered this"),
-                }
-            }
-        };
-
-        Box::pin(self.handle_command(debugger_msg))
-    }
-}
-
-#[derive(Debug, Clone)]
-enum ReplDebuggerMessageType {
-    StepIntoOpcode,
-    StepIntoACIR,
-    Next,
-    Continue,
-    Restart,
-    DisplayACIROpcodes,
-    ShowWitnessMap,
-    ShowBrilligRegisters,
-    ShowBrilligMemory,
-    DisplaySingleWitness,
-    UpdateWitness,
-    RegSet,
-    MemSet,
-    BreakpointSet,
-    BreakpointDelete,
-}
-
-#[derive(Debug, Clone)]
-enum ReplDebuggerMessage {
-    StepIntoOpcode,
-    StepIntoACIR,
-    Next,
-    Continue,
-    Restart,
-    DisplayACIROpcodes,
-    ShowWitnessMap,
-    ShowBrilligRegisters,
-    ShowBrilligMemory,
-    DisplaySingleWitness { index: u32 },
-    UpdateWitness { index: u32, new_value: String },
-    RegSet { index: usize, new_value: String },
-    MemSet { index: usize, new_value: String },
-    BreakpointSet { location: OpcodeLocation },
-    BreakpointDelete { location: OpcodeLocation },
-    Finalize,
-}
-
 pub fn run(
     compiled_program: &CompiledProgram,
     initial_witness: WitnessMap,
@@ -864,4 +724,144 @@ pub fn run(
             })
             .await
     })
+}
+
+struct DebuggerCommandHandler {
+    debugger_msg_type: ReplDebuggerMessageType,
+    debugger: Sender<ReplDebuggerMessage>,
+}
+impl DebuggerCommandHandler {
+    pub fn new(
+        debugger: Sender<ReplDebuggerMessage>,
+        debugger_msg_type: ReplDebuggerMessageType,
+    ) -> Self {
+        Self { debugger, debugger_msg_type }
+    }
+    async fn handle_command(
+        &mut self,
+        debugger_msg: ReplDebuggerMessage,
+    ) -> anyhow::Result<CommandStatus> {
+        {
+            self.debugger.send(debugger_msg).await;
+            anyhow::Ok(CommandStatus::Done)
+        }
+    }
+}
+impl ExecuteCommand for DebuggerCommandHandler {
+    fn execute(
+        &mut self,
+        args: Vec<String>,
+        args_info: Vec<CommandArgInfo>,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<CommandStatus>> + '_>> {
+        let valid = validate(args.clone(), args_info.clone());
+        if let Err(e) = valid {
+            return Box::pin(lift_validation_err(Err(e)));
+        }
+
+        let debugger_msg = match self.debugger_msg_type {
+            ReplDebuggerMessageType::StepIntoOpcode => ReplDebuggerMessage::StepIntoOpcode,
+            ReplDebuggerMessageType::StepIntoACIR => ReplDebuggerMessage::StepIntoACIR,
+            ReplDebuggerMessageType::Next => ReplDebuggerMessage::Next,
+            ReplDebuggerMessageType::Continue => ReplDebuggerMessage::Continue,
+            ReplDebuggerMessageType::Restart => ReplDebuggerMessage::Restart,
+            ReplDebuggerMessageType::DisplayACIROpcodes => ReplDebuggerMessage::DisplayACIROpcodes,
+            ReplDebuggerMessageType::ShowWitnessMap => ReplDebuggerMessage::ShowWitnessMap,
+            ReplDebuggerMessageType::ShowBrilligRegisters => {
+                ReplDebuggerMessage::ShowBrilligRegisters
+            }
+            ReplDebuggerMessageType::ShowBrilligMemory => ReplDebuggerMessage::ShowBrilligMemory,
+            ReplDebuggerMessageType::DisplaySingleWitness => {
+                let index = args[0].parse::<u32>();
+
+                match index {
+                    Ok(index) => ReplDebuggerMessage::DisplaySingleWitness { index },
+                    _ => panic!("Unreachable, validator should have covered this"),
+                }
+            }
+            ReplDebuggerMessageType::UpdateWitness => {
+                let index = args[0].parse::<u32>();
+
+                match index {
+                    Ok(index) => {
+                        ReplDebuggerMessage::UpdateWitness { index, new_value: args[1].clone() }
+                    }
+                    _ => panic!("Unreachable, validator should have covered this"),
+                }
+            }
+            ReplDebuggerMessageType::RegSet => {
+                let index = args[0].parse::<usize>();
+
+                match index {
+                    Ok(index) => ReplDebuggerMessage::RegSet { index, new_value: args[1].clone() },
+                    _ => panic!("Unreachable, validator should have covered this"),
+                }
+            }
+            ReplDebuggerMessageType::MemSet => {
+                let index = args[0].parse::<usize>();
+
+                match index {
+                    Ok(index) => ReplDebuggerMessage::MemSet { index, new_value: args[1].clone() },
+                    _ => panic!("Unreachable, validator should have covered this"),
+                }
+            }
+            ReplDebuggerMessageType::BreakpointSet => {
+                let location = args[0].parse::<OpcodeLocation>();
+                match location {
+                    Ok(location) => ReplDebuggerMessage::BreakpointSet { location },
+                    // TODO: not true, I think
+                    // TODO: check how params are displayed now in repl, and fix mini_async_repl
+                    // if necessary
+                    _ => panic!("Unreachable, validator should have covered this"),
+                }
+            }
+            ReplDebuggerMessageType::BreakpointDelete => {
+                let location = args[0].parse::<OpcodeLocation>();
+                match location {
+                    Ok(location) => ReplDebuggerMessage::BreakpointDelete { location },
+                    _ => panic!("Unreachable, validator should have covered this"),
+                }
+            }
+        };
+
+        Box::pin(self.handle_command(debugger_msg))
+    }
+}
+
+#[derive(Debug, Clone)]
+enum ReplDebuggerMessageType {
+    StepIntoOpcode,
+    StepIntoACIR,
+    Next,
+    Continue,
+    Restart,
+    DisplayACIROpcodes,
+    ShowWitnessMap,
+    ShowBrilligRegisters,
+    ShowBrilligMemory,
+    DisplaySingleWitness,
+    UpdateWitness,
+    RegSet,
+    MemSet,
+    BreakpointSet,
+    BreakpointDelete,
+}
+
+#[derive(Debug, Clone)]
+enum ReplDebuggerMessage {
+    StepIntoOpcode,
+    StepIntoACIR,
+    Next,
+    Continue,
+    Restart,
+    DisplayACIROpcodes,
+    ShowWitnessMap,
+    ShowBrilligRegisters,
+    ShowBrilligMemory,
+    DisplaySingleWitness { index: u32 },
+    UpdateWitness { index: u32, new_value: String },
+    RegSet { index: usize, new_value: String },
+    MemSet { index: usize, new_value: String },
+    BreakpointSet { location: OpcodeLocation },
+    BreakpointDelete { location: OpcodeLocation },
+    Finalize,
 }

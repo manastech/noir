@@ -468,7 +468,7 @@ fn test_break_brillig_block_while_stepping_acir_opcodes() {
     use std::collections::BTreeMap;
 
     use acvm::acir::{
-        brillig::{BinaryFieldOp, Opcode as BrilligOpcode, RegisterIndex, RegisterOrMemory},
+        brillig::{BinaryFieldOp, Opcode as BrilligOpcode, RegisterIndex},
         circuit::brillig::{Brillig, BrilligInputs, BrilligOutputs},
         native_types::Expression,
     };
