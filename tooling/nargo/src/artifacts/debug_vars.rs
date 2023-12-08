@@ -70,7 +70,7 @@ impl DebugVars {
                     if *length != array.len() as u64 { panic!("type/array length mismatch") }
                     (array.get_mut(*index as usize).unwrap(), &*Box::leak(typ.clone()))
                 },
-                (PrintableValue::Struct(field_map), PrintableType::Struct { name, fields }) => {
+                (PrintableValue::Struct(field_map), PrintableType::Struct { name: _, fields }) => {
                     if *index as usize >= fields.len() { panic!("unexpected field index past struct field length") }
                     let (key,typ) = fields.get(*index as usize).unwrap();
                     (field_map.get_mut(key).unwrap(), typ)
@@ -128,6 +128,6 @@ fn create_value(ptype: &PrintableType, values: &[Value]) -> PrintableValue {
     }
 }
 
-fn assign_values(dst: &mut PrintableValue, values: &[Value]) {
+fn assign_values(_dst: &mut PrintableValue, _values: &[Value]) {
     //unimplemented![]
 }
