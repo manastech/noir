@@ -61,7 +61,8 @@ pub struct CompileOptions {
     pub silence_warnings: bool,
 
     /// Insert debug symbols to inspect variables
-    pub debug: bool,
+    #[arg(long)]
+    pub instrument_debug: bool,
 }
 
 /// Helper type used to signify where only warnings are expected in file diagnostics
@@ -334,7 +335,7 @@ pub fn compile_no_check(
     cached_program: Option<CompiledProgram>,
     force_compile: bool,
 ) -> Result<CompiledProgram, RuntimeError> {
-    let program = if options.debug {
+    let program = if options.instrument_debug {
         monomorphize_debug(main_function, &mut context.def_interner, &context.debug_state.field_names)
     } else {
         monomorphize(main_function, &mut context.def_interner)
