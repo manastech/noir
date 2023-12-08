@@ -215,7 +215,7 @@ impl DebugState {
             }),
             arguments: vec![
                 uint_expr(var_id as u128),
-                vec_from_slice(&index_expr),
+                index_expr,
                 expr.clone(),
             ],
         }));
@@ -495,14 +495,12 @@ impl DebugState {
                 __debug_var_drop_inner(var_id);
             }
 
-            use dep::std::collections::vec::Vec as __debug_Vec;
-
             #[oracle(__debug_member_assign)]
-            unconstrained fn __debug_member_assign_oracle<T>(_var_id: u32, _indexes: __debug_Vec<u32>, _value: T) {}
-            unconstrained fn __debug_member_assign_inner<T>(var_id: u32, indexes: __debug_Vec<u32>, value: T) {
+            unconstrained fn __debug_member_assign_oracle<T>(_var_id: u32, _indexes: [u32], _value: T) {}
+            unconstrained fn __debug_member_assign_inner<T>(var_id: u32, indexes: [u32], value: T) {
                 __debug_member_assign_oracle(var_id, indexes, value);
             }
-            pub fn __debug_member_assign<T>(var_id: u32, indexes: __debug_Vec<u32>, value: T) {
+            pub fn __debug_member_assign<T>(var_id: u32, indexes: [u32], value: T) {
                 __debug_member_assign_inner(var_id, indexes, value);
             }
 
@@ -583,26 +581,10 @@ fn str_expr(s: &str) -> ast::Expression {
 }
 
 fn byte_array_expr(bytes: &[u8]) -> ast::Expression {
-    vec_from_slice(&ast::Expression {
+    ast::Expression {
         kind: ast::ExpressionKind::Literal(ast::Literal::Array(ast::ArrayLiteral::Standard(
             bytes.iter().map(|b| uint_expr(*b as u128)).collect()
         ))),
-        span: none_span(),
-    })
-}
-
-fn vec_from_slice(slice_expr: &ast::Expression) -> ast::Expression {
-    ast::Expression {
-        kind: ast::ExpressionKind::Call(Box::new(ast::CallExpression {
-            func: Box::new(ast::Expression {
-                kind: ast::ExpressionKind::Variable(ast::Path {
-                    segments: vec![ident("__debug_Vec"), ident("from_slice")],
-                    kind: PathKind::Plain,
-                }),
-                span: none_span(),
-            }),
-            arguments: vec![slice_expr.clone()],
-        })),
         span: none_span(),
     }
 }
