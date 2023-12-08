@@ -496,12 +496,26 @@ impl DebugState {
             }
 
             #[oracle(__debug_member_assign)]
-            unconstrained fn __debug_member_assign_oracle<T>(_var_id: u32, _indexes: [u32], _value: T) {}
-            unconstrained fn __debug_member_assign_inner<T>(var_id: u32, indexes: [u32], value: T) {
-                __debug_member_assign_oracle(var_id, indexes, value);
+            unconstrained fn __debug_member_assign_oracle<T>(
+                _var_id: u32, _value: T, _indexes_len: Field,
+                _v0: Field, _v1: Field, _v2: Field, _v3: Field, _v4: Field, _v5: Field, _v6: Field, _v7: Field,
+            ) {}
+            unconstrained fn __debug_member_assign_inner<T>(
+                var_id: u32, value: T, indexes_len: Field,
+                v0: Field, v1: Field, v2: Field, v3: Field, v4: Field, v5: Field, v6: Field, v7: Field,
+            ) {
+                __debug_member_assign_oracle(var_id, value, indexes_len, v0, v1, v2, v3, v4, v5, v6, v7);
             }
-            pub fn __debug_member_assign<T>(var_id: u32, indexes: [u32], value: T) {
-                __debug_member_assign_inner(var_id, indexes, value);
+            pub fn __debug_member_assign<T>(var_id: u32, indexes: [Field], value: T) {
+                let v0 = if indexes.len() as u32 >= 1 { indexes[0] } else { 0 };
+                let v1 = if indexes.len() as u32 >= 2 { indexes[1] } else { 0 };
+                let v2 = if indexes.len() as u32 >= 3 { indexes[2] } else { 0 };
+                let v3 = if indexes.len() as u32 >= 4 { indexes[3] } else { 0 };
+                let v4 = if indexes.len() as u32 >= 5 { indexes[4] } else { 0 };
+                let v5 = if indexes.len() as u32 >= 6 { indexes[5] } else { 0 };
+                let v6 = if indexes.len() as u32 >= 7 { indexes[6] } else { 0 };
+                let v7 = if indexes.len() as u32 >= 8 { indexes[7] } else { 0 };
+                __debug_member_assign_inner(var_id, value, indexes.len(), v0, v1, v2, v3, v4, v5, v6, v7);
             }
 
             #[oracle(__debug_dereference_assign)]
@@ -512,7 +526,7 @@ impl DebugState {
             pub fn __debug_dereference_assign<T>(var_id: u32, value: T) {
                 __debug_dereference_assign_inner(var_id, value);
             }
-        "#,
+        "#
         );
         if !errors.is_empty() {
             panic!("errors parsing internal oracle definitions: {errors:?}")
