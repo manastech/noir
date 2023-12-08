@@ -46,7 +46,7 @@ impl DebugState {
         })
     }
 
-    fn insert_field_name(&mut self, index: u32, field_name: &str) -> u32 {
+    fn insert_field_name(&mut self, _index: u32, field_name: &str) -> u32 {
         let field_name_id = self.next_field_name_id;
         self.next_field_name_id += 1;
         self.field_names.insert(field_name_id, field_name.to_string());
@@ -320,7 +320,7 @@ impl DebugState {
             },
             _ => {
                 let mut indexes = vec![];
-                let mut fields: Vec<(u32,String)> = vec![]; // (member index, field_name ident string)
+                let _fields: Vec<(u32,String)> = vec![]; // (member index, field_name ident string)
                 let mut cursor = &assign_stmt.lvalue;
                 let var_id;
                 loop {
@@ -573,6 +573,7 @@ fn sint_expr(x: i128) -> ast::Expression {
     }
 }
 
+#[allow(dead_code)]
 fn str_expr(s: &str) -> ast::Expression {
     ast::Expression {
         kind: ast::ExpressionKind::Literal(ast::Literal::Str(s.to_string())),
@@ -580,6 +581,7 @@ fn str_expr(s: &str) -> ast::Expression {
     }
 }
 
+#[allow(dead_code)]
 fn byte_array_expr(bytes: &[u8]) -> ast::Expression {
     ast::Expression {
         kind: ast::ExpressionKind::Literal(ast::Literal::Array(ast::ArrayLiteral::Standard(
