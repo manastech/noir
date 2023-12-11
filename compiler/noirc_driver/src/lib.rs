@@ -10,6 +10,7 @@ use noirc_abi::{AbiParameter, AbiType, ContractEvent};
 use noirc_errors::{CustomDiagnostic, FileDiagnostic};
 use noirc_evaluator::create_circuit;
 use noirc_evaluator::errors::RuntimeError;
+use noirc_frontend::debug::DEBUG_PROLOGUE_CONTENTS;
 use noirc_frontend::graph::{CrateId, CrateName};
 use noirc_frontend::hir::def_map::{Contract, CrateDefMap};
 use noirc_frontend::hir::Context;
@@ -31,6 +32,7 @@ pub use debug::DebugFile;
 pub use program::CompiledProgram;
 
 const STD_CRATE_NAME: &str = "std";
+const DEBUG_CRATE_NAME: &str = "__debug";
 
 pub const GIT_COMMIT: &str = env!("GIT_COMMIT");
 pub const GIT_DIRTY: &str = env!("GIT_DIRTY");
@@ -82,11 +84,19 @@ pub fn prepare_crate(context: &mut Context, file_name: &Path) -> CrateId {
     let std_file_id = context.file_manager.add_file(&path_to_std_lib_file).unwrap();
     let std_crate_id = context.crate_graph.add_stdlib(std_file_id);
 
+    let path_to_debug_lib_file = Path::new(DEBUG_CRATE_NAME).join("lib.nr");
+    let debug_file_id = context
+        .file_manager
+        .add_file_with_contents(&path_to_debug_lib_file, DEBUG_PROLOGUE_CONTENTS)
+        .unwrap();
+    let debug_crate_id = context.crate_graph.add_crate(debug_file_id);
+
     let root_file_id = context.file_manager.add_file(file_name).unwrap();
 
     let root_crate_id = context.crate_graph.add_crate_root(root_file_id);
 
     add_dep(context, root_crate_id, std_crate_id, STD_CRATE_NAME.parse().unwrap());
+    add_dep(context, root_crate_id, debug_crate_id, DEBUG_CRATE_NAME.parse().unwrap());
 
     root_crate_id
 }
@@ -338,7 +348,11 @@ pub fn compile_no_check(
     force_compile: bool,
 ) -> Result<CompiledProgram, RuntimeError> {
     let program = if options.instrument_debug {
-        monomorphize_debug(main_function, &mut context.def_interner, &context.debug_state.field_names)
+        monomorphize_debug(
+            main_function,
+            &mut context.def_interner,
+            &context.debug_state.field_names,
+        )
     } else {
         monomorphize(main_function, &mut context.def_interner)
     };
