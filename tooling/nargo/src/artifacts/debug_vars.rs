@@ -80,7 +80,7 @@ impl DebugVars {
                 },
             };
         }
-        assign_values(cursor, values);
+        *cursor = create_value(cursor_type, values);
         self.active.insert(var_id);
     }
 
@@ -119,15 +119,18 @@ fn create_value(ptype: &PrintableType, values: &[Value]) -> PrintableValue {
                 .collect()
             )
         },
-        PrintableType::Struct { name: _name, fields: _fields } => {
-            unimplemented![]
+        PrintableType::Struct { name: _name, fields } => {
+            PrintableValue::Struct(fields.iter()
+                .zip(values.iter())
+                .map(|((key, stype),v)| (key.clone(), create_value(stype, &[*v])))
+                .collect()
+            )
         },
         PrintableType::String { length: _length } => {
-            unimplemented![]
+            PrintableValue::String(String::from_utf8(values.iter()
+                .map(|v| v.to_field().to_u128() as u8)
+                .collect()
+            ).expect("string utf8 decode failed"))
         },
     }
-}
-
-fn assign_values(_dst: &mut PrintableValue, _values: &[Value]) {
-    //unimplemented![]
 }
