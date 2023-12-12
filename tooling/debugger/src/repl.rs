@@ -89,7 +89,9 @@ impl<'a, B: BlackBoxFunctionSolver> ReplDebugger<'a, B> {
         let locations = self.debug_artifact.debug_symbols[0].opcode_location(location);
         let Some(locations) = locations else { return };
         for loc in locations {
-            if loc.span.start() == loc.span.end() {
+            if loc.span.start() == loc.span.end()
+                || self.context.is_source_location_in_debug_module(&loc)
+            {
                 continue;
             }
             self.print_location_path(loc);
