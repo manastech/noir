@@ -24,7 +24,9 @@ use crate::{
         stmt::{HirAssignStatement, HirLValue, HirLetStatement, HirPattern, HirStatement},
         types,
     },
-    node_interner::{self, DefinitionKind, ExprId, NodeInterner, StmtId, TraitImplKind, TraitMethodId},
+    node_interner::{
+        self, DefinitionKind, ExprId, NodeInterner, StmtId, TraitImplKind, TraitMethodId,
+    },
     token::FunctionAttribute,
     ContractFunctionType, FunctionKind, Type, TypeBinding, TypeBindings, TypeVariableKind,
     Visibility,
@@ -130,7 +132,8 @@ fn monomorphize_option_debug(
     }
 
     let functions = vecmap(monomorphizer.finished_functions, |(_, f)| f);
-    let FuncMeta { return_distinctness, return_visibility, .. } = monomorphizer.interner.function_meta(&main);
+    let FuncMeta { return_distinctness, return_visibility, .. } =
+        monomorphizer.interner.function_meta(&main);
     Program::new(
         functions,
         function_sig,
@@ -249,7 +252,7 @@ impl<'interner> Monomorphizer<'interner> {
     fn compile_main_debug(
         &mut self,
         main_id: node_interner::FuncId,
-        field_names: &HashMap<u32,String>,
+        field_names: &HashMap<u32, String>,
     ) -> FunctionSignature {
         self.debug_field_names = field_names.clone();
         self.compile_main(main_id)
@@ -934,11 +937,7 @@ impl<'interner> Monomorphizer<'interner> {
                 Some(HirExpression::Literal(HirLiteral::Integer(fe_var_id, _))),
                 Some(HirExpression::Ident(HirIdent { id, .. })),
                 true,
-            ) = (
-                hir_arguments.get(0),
-                hir_arguments.get(1),
-                name == "__debug_var_assign"
-            )
+            ) = (hir_arguments.get(0), hir_arguments.get(1), name == "__debug_var_assign")
             {
                 let var_def = self.interner.definition(*id);
                 let var_type = self.interner.id_type(call.arguments[1]);
@@ -955,9 +954,8 @@ impl<'interner> Monomorphizer<'interner> {
                 hir_arguments.get(0),
                 hir_arguments.get(1),
                 hir_arguments.get(2),
-                name == "__debug_member_assign"
-            )
-            {
+                name == "__debug_member_assign",
+            ) {
                 let var_def_name = self.interner.definition(id.clone()).name.clone();
                 let var_type = self.interner.id_type(call.arguments[1]);
                 let var_id = fe_var_id.to_u128() as u32;
@@ -965,36 +963,51 @@ impl<'interner> Monomorphizer<'interner> {
                 let HirExpression::Literal(HirLiteral::Array(HirArrayLiteral::Standard(indexes_array)))
                     = self.interner.expression(&indexes_vec_call.arguments[0])
                     else { panic!("unexpected member assign index vec parameter type") };
-                let mut cursor_type = self.debug_types.get_type(var_id)
+                let mut cursor_type = self
+                    .debug_types
+                    .get_type(var_id)
                     .expect(&format!["type not found for var_id={var_id}"])
                     .clone();
-                let indexes: Vec<ExprId> = indexes_array.iter().map(|i_id| {
-                    if let ast::Expression::Literal(ast::Literal::Integer(fe, _type, _location)) = self.expr(*i_id) {
-                        let i = i128::from_str_radix(&fe.to_string(), 10)
-                            .expect("unable to parse field element as i128");
-                        if i < 0 {
-                            let i = i.unsigned_abs();
-                            let field_name = self.debug_field_names.get(&(i as u32))
-                                .expect(&format!["field name not available for {i:?}"]);
-                            let field_i = get_field(&cursor_type, field_name)
-                                .expect(&format!["failed to find field_name: {field_name}"])
-                                as u128;
-                            cursor_type = next_type(&cursor_type, field_i as usize);
-                            self.interner.push_expr(HirExpression::Literal(HirLiteral::Integer(field_i.into(), false)))
+                let indexes: Vec<ExprId> = indexes_array
+                    .iter()
+                    .map(|i_id| {
+                        if let ast::Expression::Literal(ast::Literal::Integer(
+                            fe,
+                            _type,
+                            _location,
+                        )) = self.expr(*i_id)
+                        {
+                            let i = i128::from_str_radix(&fe.to_string(), 10)
+                                .expect("unable to parse field element as i128");
+                            if i < 0 {
+                                let i = i.unsigned_abs();
+                                let field_name = self
+                                    .debug_field_names
+                                    .get(&(i as u32))
+                                    .expect(&format!["field name not available for {i:?}"]);
+                                let field_i = get_field(&cursor_type, field_name)
+                                    .expect(&format!["failed to find field_name: {field_name}"])
+                                    as u128;
+                                cursor_type = next_type(&cursor_type, field_i as usize);
+                                self.interner.push_expr(HirExpression::Literal(
+                                    HirLiteral::Integer(field_i.into(), false),
+                                ))
+                            } else {
+                                cursor_type = next_type(&cursor_type, i as usize);
+                                *i_id
+                            }
                         } else {
-                            cursor_type = next_type(&cursor_type, i as usize);
+                            cursor_type = next_type(&cursor_type, 0);
                             *i_id
                         }
-                    } else {
-                        cursor_type = next_type(&cursor_type, 0);
-                        *i_id
-                    }
-                }).collect();
-                let index_vec_id = self.interner.push_expr(HirExpression::Call(HirCallExpression {
-                    func: indexes_vec_call.func.clone(),
-                    arguments: indexes,
-                    location: indexes_vec_call.location.clone(),
-                }));
+                    })
+                    .collect();
+                let index_vec_id =
+                    self.interner.push_expr(HirExpression::Call(HirCallExpression {
+                        func: indexes_vec_call.func.clone(),
+                        arguments: indexes,
+                        location: indexes_vec_call.location.clone(),
+                    }));
                 arguments[1] = self.expr(index_vec_id);
 
                 if &var_def_name != "__debug_expr" {
@@ -1570,24 +1583,22 @@ fn undo_instantiation_bindings(bindings: TypeBindings) {
 fn get_field(ptype: &PrintableType, field_name: &str) -> Option<usize> {
     match ptype {
         PrintableType::Struct { fields, .. } => {
-            fields.iter().position(|(name,_)| name == field_name)
-        },
-        _ => None
+            fields.iter().position(|(name, _)| name == field_name)
+        }
+        _ => None,
     }
 }
 
 fn next_type(ptype: &PrintableType, i: usize) -> PrintableType {
     match ptype {
         PrintableType::Array { length: _length, typ } => (**typ).clone(),
-        PrintableType::Struct { name: _name, fields } => {
-            fields[i].1.clone()
-        },
+        PrintableType::Struct { name: _name, fields } => fields[i].1.clone(),
         PrintableType::String { length: _length } => {
-           // TODO: check bounds
-           PrintableType::UnsignedInteger { width: 8 }
-        },
+            // TODO: check bounds
+            PrintableType::UnsignedInteger { width: 8 }
+        }
         _ => {
-           panic!["expected type with sub-fields, found terminal type"]
+            panic!["expected type with sub-fields, found terminal type"]
         }
     }
 }

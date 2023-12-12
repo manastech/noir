@@ -171,10 +171,7 @@ impl DefaultForeignCallExecutor {
             Some(ForeignCall::DebugVarAssign) => {
                 let fcp_var_id = &foreign_call.inputs[0];
                 let fcp_value = &foreign_call.inputs[1];
-                if let (
-                    Some(ds),
-                    ForeignCallParam::Single(var_id_value),
-                ) = (debug_vars, fcp_var_id)
+                if let (Some(ds), ForeignCallParam::Single(var_id_value)) = (debug_vars, fcp_var_id)
                 {
                     let var_id = var_id_value.to_u128() as u32;
                     ds.assign(var_id, &fcp_value.values());
@@ -194,22 +191,25 @@ impl DefaultForeignCallExecutor {
                 if let (
                     Some(ds),
                     Some(ForeignCallParam::Single(var_id_value)),
-                    Some(fcp_value@ForeignCallParam::Single(_value)),
+                    Some(fcp_value @ ForeignCallParam::Single(_value)),
                     Some(ForeignCallParam::Single(indexes_len_value)),
                 ) = (
                     debug_vars,
                     foreign_call.inputs.get(0),
                     foreign_call.inputs.get(1),
                     foreign_call.inputs.get(2),
-                )
-                {
+                ) {
                     let indexes_value: Vec<u32> = (0..indexes_len_value.to_u128() as usize)
                         .map(|i| {
-                            foreign_call.inputs.get(3+i)
+                            foreign_call
+                                .inputs
+                                .get(3 + i)
                                 .and_then(|fcp_v| {
                                     if let ForeignCallParam::Single(v) = fcp_v {
                                         Some(v.to_u128() as u32)
-                                    } else { None }
+                                    } else {
+                                        None
+                                    }
                                 })
                                 .expect("expected index not defined")
                         })
@@ -224,10 +224,7 @@ impl DefaultForeignCallExecutor {
             Some(ForeignCall::DebugDerefAssign) => {
                 let fcp_var_id = &foreign_call.inputs[0];
                 let fcp_value = &foreign_call.inputs[1];
-                if let (
-                    Some(ds),
-                    ForeignCallParam::Single(var_id_value),
-                ) = (debug_vars, fcp_var_id)
+                if let (Some(ds), ForeignCallParam::Single(var_id_value)) = (debug_vars, fcp_var_id)
                 {
                     let var_id = var_id_value.to_u128() as u32;
                     ds.assign_deref(var_id, &fcp_value.values());
