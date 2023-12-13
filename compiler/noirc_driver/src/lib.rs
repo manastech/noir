@@ -67,6 +67,10 @@ pub struct CompileOptions {
     /// Insert debug symbols to inspect variables
     #[arg(long)]
     pub instrument_debug: bool,
+
+    /// Force Brillig output (for step debugging)
+    #[arg(long, hide = true)]
+    pub force_brillig: bool,
 }
 
 /// Helper type used to signify where only warnings are expected in file diagnostics
@@ -370,7 +374,7 @@ pub fn compile_no_check(
     }
     let visibility = program.return_visibility;
     let (circuit, debug, input_witnesses, return_witnesses, warnings) =
-        create_circuit(program, options.show_ssa, options.show_brillig)?;
+        create_circuit(program, options.show_ssa, options.show_brillig, options.force_brillig)?;
 
     let abi =
         abi_gen::gen_abi(context, &main_function, input_witnesses, return_witnesses, visibility);
