@@ -956,7 +956,7 @@ impl<'interner> Monomorphizer<'interner> {
                 hir_arguments.get(2),
                 name == "__debug_member_assign",
             ) {
-                let var_def_name = self.interner.definition(id.clone()).name.clone();
+                let var_def_name = self.interner.definition(*id).name.clone();
                 let indexes_type = self.interner.id_type(call.arguments[1]);
                 let var_type = self.interner.id_type(call.arguments[2]);
                 let var_id = fe_var_id.to_u128() as u32;
@@ -964,7 +964,7 @@ impl<'interner> Monomorphizer<'interner> {
                 let mut cursor_type = self
                     .debug_types
                     .get_type(var_id)
-                    .expect(&format!["type not found for var_id={var_id}"])
+                    .unwrap_or_else(|| panic!("type not found for var_id={var_id}"))
                     .clone();
                 let indexes: Vec<ExprId> = indexes_vec
                     .iter()
@@ -975,16 +975,16 @@ impl<'interner> Monomorphizer<'interner> {
                             _location,
                         )) = self.expr(*i_id)
                         {
-                            let i = i128::from_str_radix(&fe.to_string(), 10)
+                            let i = fe.to_string().parse::<i128>()
                                 .expect("unable to parse field element as i128");
                             if i < 0 {
                                 let i = i.unsigned_abs();
                                 let field_name = self
                                     .debug_field_names
                                     .get(&(i as u32))
-                                    .expect(&format!["field name not available for {i:?}"]);
+                                    .unwrap_or_else(|| panic!("field name not available for {i:?}"));
                                 let field_i = get_field(&cursor_type, field_name)
-                                    .expect(&format!["failed to find field_name: {field_name}"])
+                                    .unwrap_or_else(|| panic!("failed to find field_name: {field_name}"))
                                     as u128;
                                 cursor_type = next_type(&cursor_type, field_i as usize);
                                 let index_id = self.interner.push_expr(HirExpression::Literal(
