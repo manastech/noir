@@ -13,12 +13,13 @@ pub struct DebugVars {
 
 impl DebugVars {
     pub fn new(vars: &HashMap<u32, String>) -> Self {
-        let mut debug_vars = Self::default();
-        debug_vars.id_to_name = vars.clone();
-        debug_vars
+        Self {
+            id_to_name: vars.clone(),
+            ..Self::default()
+        }
     }
 
-    pub fn get_variables<'a>(&'a self) -> Vec<(&'a str, &'a PrintableValue, &'a PrintableType)> {
+    pub fn get_variables(&self) -> Vec<(&str, &PrintableValue, &PrintableType)> {
         self.active
             .iter()
             .filter_map(|var_id| {
@@ -52,7 +53,7 @@ impl DebugVars {
         self.active.insert(var_id);
         // TODO: assign values as PrintableValue
         let type_id = self.id_to_type.get(&var_id).unwrap();
-        let ptype = self.types.get(&type_id).unwrap();
+        let ptype = self.types.get(type_id).unwrap();
         self.id_to_value.insert(var_id, create_value(ptype, values));
     }
 
@@ -60,15 +61,15 @@ impl DebugVars {
         let mut cursor: &mut PrintableValue = self
             .id_to_value
             .get_mut(&var_id)
-            .expect(&format!["value unavailable for var_id {var_id}"]);
+            .unwrap_or_else(|| panic!("value unavailable for var_id {var_id}"));
         let cursor_type_id = self
             .id_to_type
             .get(&var_id)
-            .expect(&format!["type id unavailable for var_id {var_id}"]);
+            .unwrap_or_else(|| panic!("type id unavailable for var_id {var_id}"));
         let mut cursor_type = self
             .types
             .get(cursor_type_id)
-            .expect(&format!["type unavailable for type id {cursor_type_id}"]);
+            .unwrap_or_else(|| panic!("type unavailable for type id {cursor_type_id}"));
         for index in indexes.iter() {
             (cursor, cursor_type) = match (cursor, cursor_type) {
                 (PrintableValue::Vec(array), PrintableType::Array { length, typ }) => {
@@ -101,7 +102,7 @@ impl DebugVars {
         unimplemented![]
     }
 
-    pub fn get<'a>(&'a mut self, var_id: u32) -> Option<&'a PrintableValue> {
+    pub fn get(&mut self, var_id: u32) -> Option<&PrintableValue> {
         self.id_to_value.get(&var_id)
     }
 

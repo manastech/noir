@@ -112,8 +112,8 @@ impl DebugState {
             self.scope
                 .pop()
                 .unwrap_or(HashMap::default())
-                .iter()
-                .map(|(_var_name, var_id)| self.wrap_drop_var(*var_id))
+                .values()
+                .map(|var_id| self.wrap_drop_var(*var_id))
                 .collect(),
             // return the __debug_expr value:
             vec![match &ret_stmt.kind {
@@ -144,11 +144,10 @@ impl DebugState {
         if !self.enabled {
             return;
         }
-        module.items.iter_mut().for_each(|item| match item {
-            Item { kind: ItemKind::Function(f), .. } => {
+        module.items.iter_mut().for_each(|item| {
+            if let Item { kind: ItemKind::Function(f), .. } = item {
                 self.walk_fn(&mut f.def);
             }
-            _ => {}
         });
         // this part absolutely must happen after ast traversal above
         // so that oracle functions don't get wrapped, resulting in infinite recursion:
@@ -276,7 +275,7 @@ impl DebugState {
                     span: none_span(),
                 },
             }),
-            span: span.clone(),
+            span: *span,
         }
     }
 
@@ -305,7 +304,7 @@ impl DebugState {
             ast::LValue::Ident(id) => {
                 let var_id = self
                     .lookup_var(&id.0.contents)
-                    .expect(&format!["var lookup failed for var_name={}", &id.0.contents]);
+                    .unwrap_or_else(|| panic!("var lookup failed for var_name={}", &id.0.contents));
                 self.wrap_assign_var(var_id, id_expr(&ident("__debug_expr", none_span())))
             }
             ast::LValue::Dereference(_lv) => {
@@ -320,10 +319,9 @@ impl DebugState {
                 loop {
                     match cursor {
                         ast::LValue::Ident(id) => {
-                            var_id = self.lookup_var(&id.0.contents).expect(&format![
-                                "var lookup failed for var_name={}",
-                                &id.0.contents
-                            ]);
+                            var_id = self.lookup_var(&id.0.contents).unwrap_or_else(|| {
+                                panic!("var lookup failed for var_name={}", &id.0.contents)
+                            });
                             break;
                         }
                         ast::LValue::MemberAccess { object, field_name } => {
@@ -362,7 +360,7 @@ impl DebugState {
                     span: none_span(),
                 },
             }),
-            span: span.clone(),
+            span: *span,
         }
     }
 
@@ -454,10 +452,10 @@ impl DebugState {
     fn walk_statement(&mut self, stmt: &mut ast::Statement) {
         match &mut stmt.kind {
             ast::StatementKind::Let(let_stmt) => {
-                *stmt = self.wrap_let_statement(&let_stmt, &stmt.span);
+                *stmt = self.wrap_let_statement(let_stmt, &stmt.span);
             }
             ast::StatementKind::Assign(assign_stmt) => {
-                *stmt = self.wrap_assign_statement(&assign_stmt, &stmt.span);
+                *stmt = self.wrap_assign_statement(assign_stmt, &stmt.span);
             }
             ast::StatementKind::Expression(expr) => {
                 self.walk_expr(expr);
@@ -613,5 +611,5 @@ fn byte_array_expr(bytes: &[u8]) -> ast::Expression {
 }
 
 fn none_span() -> Span {
-    Span::from_str("")
+    Span::build_from_str("")
 }
