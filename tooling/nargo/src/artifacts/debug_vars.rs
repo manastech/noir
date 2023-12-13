@@ -78,12 +78,28 @@ impl DebugVars {
                     }
                     (array.get_mut(*index as usize).unwrap(), &*Box::leak(typ.clone()))
                 }
-                (PrintableValue::Struct(field_map), PrintableType::Struct { name: _, fields }) => {
+                (
+                    PrintableValue::Struct(field_map),
+                    PrintableType::Struct { name: _name, fields },
+                ) => {
                     if *index as usize >= fields.len() {
                         panic!("unexpected field index past struct field length")
                     }
                     let (key, typ) = fields.get(*index as usize).unwrap();
                     (field_map.get_mut(key).unwrap(), typ)
+                }
+                (PrintableValue::Vec(array), PrintableType::Tuple { types }) => {
+                    if *index >= types.len() as u32 {
+                        panic!(
+                            "unexpected field index ({index}) past tuple length ({})",
+                            types.len()
+                        );
+                    }
+                    if types.len() != array.len() {
+                        panic!("type/array length mismatch")
+                    }
+                    let typ = types.get(*index as usize).unwrap();
+                    (array.get_mut(*index as usize).unwrap(), typ)
                 }
                 _ => {
                     panic!("unexpected assign field of {cursor_type:?} type");
@@ -125,6 +141,13 @@ fn create_value(ptype: &PrintableType, values: &[Value]) -> PrintableValue {
                 panic!["array type length ({}) != value length ({})", length, values.len()];
             }
             PrintableValue::Vec(values.iter().map(|v| create_value(typ, &[*v])).collect())
+        }
+        PrintableType::Tuple { types } => {
+            let default_value = 0u128.into();
+            let padded_values = values.iter().chain(std::iter::repeat(&default_value));
+            PrintableValue::Vec(
+                types.iter().zip(padded_values).map(|(typ, v)| create_value(typ, &[*v])).collect(),
+            )
         }
         PrintableType::Struct { name: _name, fields } => PrintableValue::Struct(
             fields

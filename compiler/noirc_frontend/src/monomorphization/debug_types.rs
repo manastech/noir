@@ -24,8 +24,8 @@ impl DebugTypes {
         self.variables.insert(var_id, (var_name.to_string(), type_id));
     }
 
-    pub fn get_type(&self, var_id: u32) -> Option<&PrintableType> {
-        self.id_to_type.get(&var_id)
+    pub fn get_type<'a>(&'a self, var_id: u32) -> Option<&'a PrintableType> {
+        self.variables.get(&var_id).and_then(|(_, type_id)| self.id_to_type.get(&type_id))
     }
 }
 

@@ -177,6 +177,9 @@ fn compile_program(
 ) -> (FileManager, CompilationResult<CompiledProgram>) {
     let (mut context, crate_id) =
         prepare_package(package, Box::new(|path| std::fs::read_to_string(path)));
+    if compile_options.instrument_debug {
+        context.instrument_debug = true;
+    }
 
     let program_artifact_path = workspace.package_build_path(package);
     let mut debug_artifact_path = program_artifact_path.clone();

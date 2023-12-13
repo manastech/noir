@@ -930,9 +930,7 @@ impl<'interner> Monomorphizer<'interner> {
         let original_func = Box::new(self.expr(call.func));
         let mut arguments = vecmap(&call.arguments, |id| self.expr(*id));
         let hir_arguments = vecmap(&call.arguments, |id| self.interner.expression(id));
-        if let (ast::Expression::Ident(ast::Ident { name, .. }), 2) =
-            (original_func.as_ref(), arguments.len())
-        {
+        if let ast::Expression::Ident(ast::Ident { name, .. }) = original_func.as_ref() {
             if let (
                 Some(HirExpression::Literal(HirLiteral::Integer(fe_var_id, _))),
                 Some(HirExpression::Ident(HirIdent { id, .. })),
@@ -947,7 +945,9 @@ impl<'interner> Monomorphizer<'interner> {
                 }
             } else if let (
                 Some(HirExpression::Literal(HirLiteral::Integer(fe_var_id, _))),
-                Some(HirExpression::Call(indexes_vec_call)),
+                Some(HirExpression::Literal(HirLiteral::Array(HirArrayLiteral::Standard(
+                    indexes_vec,
+                )))),
                 Some(HirExpression::Ident(HirIdent { id, .. })),
                 true,
             ) = (
@@ -956,19 +956,17 @@ impl<'interner> Monomorphizer<'interner> {
                 hir_arguments.get(2),
                 name == "__debug_member_assign",
             ) {
-                let var_def_name = self.interner.definition(*id).name.clone();
-                let var_type = self.interner.id_type(call.arguments[1]);
+                let var_def_name = self.interner.definition(id.clone()).name.clone();
+                let indexes_type = self.interner.id_type(call.arguments[1]);
+                let var_type = self.interner.id_type(call.arguments[2]);
                 let var_id = fe_var_id.to_u128() as u32;
 
-                let HirExpression::Literal(HirLiteral::Array(HirArrayLiteral::Standard(indexes_array)))
-                    = self.interner.expression(&indexes_vec_call.arguments[0])
-                    else { panic!("unexpected member assign index vec parameter type") };
                 let mut cursor_type = self
                     .debug_types
                     .get_type(var_id)
-                    .unwrap_or_else(|| panic!("type not found for var_id={var_id}"))
+                    .expect(&format!["type not found for var_id={var_id}"])
                     .clone();
-                let indexes: Vec<ExprId> = indexes_array
+                let indexes: Vec<ExprId> = indexes_vec
                     .iter()
                     .map(|i_id| {
                         if let ast::Expression::Literal(ast::Literal::Integer(
@@ -977,26 +975,30 @@ impl<'interner> Monomorphizer<'interner> {
                             _location,
                         )) = self.expr(*i_id)
                         {
-                            let i = fe
-                                .to_string()
-                                .parse::<i128>()
+                            let i = i128::from_str_radix(&fe.to_string(), 10)
                                 .expect("unable to parse field element as i128");
                             if i < 0 {
                                 let i = i.unsigned_abs();
-                                let field_name =
-                                    self.debug_field_names.get(&(i as u32)).unwrap_or_else(|| {
-                                        panic!("field name not available for {i:?}")
-                                    });
-                                let field_i =
-                                    get_field(&cursor_type, field_name).unwrap_or_else(|| {
-                                        panic!("failed to find field_name: {field_name}")
-                                    }) as u128;
+                                let field_name = self
+                                    .debug_field_names
+                                    .get(&(i as u32))
+                                    .expect(&format!["field name not available for {i:?}"]);
+                                let field_i = get_field(&cursor_type, field_name)
+                                    .expect(&format!["failed to find field_name: {field_name}"])
+                                    as u128;
                                 cursor_type = next_type(&cursor_type, field_i as usize);
-                                self.interner.push_expr(HirExpression::Literal(
+                                let index_id = self.interner.push_expr(HirExpression::Literal(
                                     HirLiteral::Integer(field_i.into(), false),
-                                ))
+                                ));
+                                self.interner.push_expr_type(&index_id, Type::FieldElement);
+                                self.interner.push_expr_location(
+                                    index_id,
+                                    call.location.span,
+                                    call.location.file,
+                                );
+                                index_id
                             } else {
-                                cursor_type = next_type(&cursor_type, i as usize);
+                                cursor_type = next_type(&cursor_type, 0);
                                 *i_id
                             }
                         } else {
@@ -1005,13 +1007,17 @@ impl<'interner> Monomorphizer<'interner> {
                         }
                     })
                     .collect();
-                let index_vec_id =
-                    self.interner.push_expr(HirExpression::Call(HirCallExpression {
-                        func: indexes_vec_call.func,
-                        arguments: indexes,
-                        location: indexes_vec_call.location,
-                    }));
-                arguments[1] = self.expr(index_vec_id);
+
+                let index_array_id = self.interner.push_expr(HirExpression::Literal(
+                    HirLiteral::Array(HirArrayLiteral::Standard(indexes)),
+                ));
+                self.interner.push_expr_type(&index_array_id, indexes_type);
+                self.interner.push_expr_location(
+                    index_array_id,
+                    call.location.span,
+                    call.location.file,
+                );
+                arguments[1] = self.expr(index_array_id);
 
                 if &var_def_name != "__debug_expr" {
                     self.debug_types.insert_var(var_id, &var_def_name, var_type);
@@ -1588,6 +1594,9 @@ fn get_field(ptype: &PrintableType, field_name: &str) -> Option<usize> {
         PrintableType::Struct { fields, .. } => {
             fields.iter().position(|(name, _)| name == field_name)
         }
+        PrintableType::Tuple { .. } | PrintableType::Array { .. } => {
+            field_name.parse::<usize>().ok()
+        }
         _ => None,
     }
 }
@@ -1595,6 +1604,7 @@ fn get_field(ptype: &PrintableType, field_name: &str) -> Option<usize> {
 fn next_type(ptype: &PrintableType, i: usize) -> PrintableType {
     match ptype {
         PrintableType::Array { length: _length, typ } => (**typ).clone(),
+        PrintableType::Tuple { types } => types[i].clone(),
         PrintableType::Struct { name: _name, fields } => fields[i].1.clone(),
         PrintableType::String { length: _length } => {
             // TODO: check bounds
