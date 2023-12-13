@@ -84,6 +84,21 @@ impl<'a, B: BlackBoxFunctionSolver> DebugContext<'a, B> {
         }
     }
 
+    pub(super) fn get_call_stack(&self) -> Vec<OpcodeLocation> {
+        let ip = self.acvm.instruction_pointer();
+        if ip >= self.get_opcodes().len() {
+            vec![]
+        } else if let Some(ref solver) = self.brillig_solver {
+            solver
+                .get_call_stack()
+                .iter()
+                .map(|pc| OpcodeLocation::Brillig { acir_index: ip, brillig_index: *pc })
+                .collect()
+        } else {
+            vec![OpcodeLocation::Acir(ip)]
+        }
+    }
+
     pub(super) fn is_source_location_in_debug_module(&self, location: &Location) -> bool {
         self.debug_artifact
             .file_map
