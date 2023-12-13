@@ -13,10 +13,7 @@ pub struct DebugVars {
 
 impl DebugVars {
     pub fn new(vars: &HashMap<u32, String>) -> Self {
-        Self {
-            id_to_name: vars.clone(),
-            ..Self::default()
-        }
+        Self { id_to_name: vars.clone(), ..Self::default() }
     }
 
     pub fn get_variables(&self) -> Vec<(&str, &PrintableValue, &PrintableType)> {

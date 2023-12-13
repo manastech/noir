@@ -103,19 +103,15 @@ impl<'a, B: BlackBoxFunctionSolver> DebugContext<'a, B> {
         self.get_current_opcode_location()
             .as_ref()
             .and_then(|location| self.debug_artifact.debug_symbols[0].opcode_location(location))
-            .and_then(|source_locations| {
-                let result: Vec<Location> = source_locations
+            .map(|source_locations| {
+                source_locations
                     .into_iter()
                     .filter(|source_location| {
                         !self.is_source_location_in_debug_module(source_location)
                     })
-                    .collect();
-                if result.is_empty() {
-                    None
-                } else {
-                    Some(result)
-                }
+                    .collect()
             })
+            .filter(|v: &Vec<Location>| !v.is_empty())
     }
 
     fn step_brillig_opcode(&mut self) -> DebugCommandResult {

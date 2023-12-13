@@ -977,17 +977,20 @@ impl<'interner> Monomorphizer<'interner> {
                             _location,
                         )) = self.expr(*i_id)
                         {
-                            let i = fe.to_string().parse::<i128>()
+                            let i = fe
+                                .to_string()
+                                .parse::<i128>()
                                 .expect("unable to parse field element as i128");
                             if i < 0 {
                                 let i = i.unsigned_abs();
-                                let field_name = self
-                                    .debug_field_names
-                                    .get(&(i as u32))
-                                    .unwrap_or_else(|| panic!("field name not available for {i:?}"));
-                                let field_i = get_field(&cursor_type, field_name)
-                                    .unwrap_or_else(|| panic!("failed to find field_name: {field_name}"))
-                                    as u128;
+                                let field_name =
+                                    self.debug_field_names.get(&(i as u32)).unwrap_or_else(|| {
+                                        panic!("field name not available for {i:?}")
+                                    });
+                                let field_i =
+                                    get_field(&cursor_type, field_name).unwrap_or_else(|| {
+                                        panic!("failed to find field_name: {field_name}")
+                                    }) as u128;
                                 cursor_type = next_type(&cursor_type, field_i as usize);
                                 self.interner.push_expr(HirExpression::Literal(
                                     HirLiteral::Integer(field_i.into(), false),
