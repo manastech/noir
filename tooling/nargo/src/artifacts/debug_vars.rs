@@ -70,10 +70,18 @@ impl DebugVars {
                     if *length != array.len() as u64 { panic!("type/array length mismatch") }
                     (array.get_mut(*index as usize).unwrap(), &*Box::leak(typ.clone()))
                 },
-                (PrintableValue::Struct(field_map), PrintableType::Struct { name, fields }) => {
+                (PrintableValue::Struct(field_map), PrintableType::Struct { name: _name, fields }) => {
                     if *index as usize >= fields.len() { panic!("unexpected field index past struct field length") }
                     let (key,typ) = fields.get(*index as usize).unwrap();
                     (field_map.get_mut(key).unwrap(), typ)
+                },
+                (PrintableValue::Vec(array), PrintableType::Tuple { types }) => {
+                    if *index >= types.len() as u32 {
+                        panic!("unexpected field index ({index}) past tuple length ({})", types.len());
+                    }
+                    if types.len() != array.len() { panic!("type/array length mismatch") }
+                    let typ = types.get(*index as usize).unwrap();
+                    (array.get_mut(*index as usize).unwrap(), typ)
                 },
                 _ => {
                     panic!("unexpected assign field of {cursor_type:?} type");
@@ -119,7 +127,13 @@ fn create_value(ptype: &PrintableType, values: &[Value]) -> PrintableValue {
                 .collect()
             )
         },
-        PrintableType::Struct { name: _name, fields: fields } => {
+        PrintableType::Tuple { types } => {
+            PrintableValue::Vec(types.iter().zip(values.iter())
+                .map(|(typ,v)| create_value(typ, &[*v]))
+                .collect()
+            )
+        },
+        PrintableType::Struct { name: _name, fields } => {
             PrintableValue::Struct(fields.iter()
                 .zip(values.iter())
                 .map(|((key, stype),v)| (key.clone(), create_value(stype, &[*v])))

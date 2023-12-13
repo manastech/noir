@@ -46,7 +46,7 @@ impl DebugState {
         })
     }
 
-    fn insert_field_name(&mut self, index: u32, field_name: &str) -> u32 {
+    fn insert_field_name(&mut self, field_name: &str) -> u32 {
         let field_name_id = self.next_field_name_id;
         self.next_field_name_id += 1;
         self.field_names.insert(field_name_id, field_name.to_string());
@@ -320,7 +320,6 @@ impl DebugState {
             },
             _ => {
                 let mut indexes = vec![];
-                let mut fields: Vec<(u32,String)> = vec![]; // (member index, field_name ident string)
                 let mut cursor = &assign_stmt.lvalue;
                 let var_id;
                 loop {
@@ -332,10 +331,7 @@ impl DebugState {
                         },
                         ast::LValue::MemberAccess { object, field_name } => {
                             cursor = object;
-                            let field_name_id = self.insert_field_name(
-                                indexes.len() as u32,
-                                &field_name.0.contents,
-                            );
+                            let field_name_id = self.insert_field_name(&field_name.0.contents);
                             indexes.push(sint_expr(-(field_name_id as i128)));
                         },
                         ast::LValue::Index { index, array } => {
@@ -583,22 +579,6 @@ fn uint_expr(x: u128) -> ast::Expression {
 fn sint_expr(x: i128) -> ast::Expression {
     ast::Expression {
         kind: ast::ExpressionKind::Literal(ast::Literal::Integer(x.into())),
-        span: none_span(),
-    }
-}
-
-fn str_expr(s: &str) -> ast::Expression {
-    ast::Expression {
-        kind: ast::ExpressionKind::Literal(ast::Literal::Str(s.to_string())),
-        span: none_span(),
-    }
-}
-
-fn byte_array_expr(bytes: &[u8]) -> ast::Expression {
-    ast::Expression {
-        kind: ast::ExpressionKind::Literal(ast::Literal::Array(ast::ArrayLiteral::Standard(
-            bytes.iter().map(|b| uint_expr(*b as u128)).collect()
-        ))),
         span: none_span(),
     }
 }

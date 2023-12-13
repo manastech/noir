@@ -1465,7 +1465,9 @@ impl From<&Type> for PrintableType {
                 PrintableType::Struct { fields, name: struct_type.name.to_string() }
             }
             Type::TraitAsType(_) => unreachable!(),
-            Type::Tuple(_) => todo!("printing tuple types is not yet implemented"),
+            Type::Tuple(types) => {
+                PrintableType::Tuple { types: vecmap(types, |typ| typ.into()) }
+            }
             Type::TypeVariable(_, _) => unreachable!(),
             Type::NamedGeneric(..) => unreachable!(),
             Type::Forall(..) => unreachable!(),

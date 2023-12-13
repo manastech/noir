@@ -25,7 +25,9 @@ impl DebugTypes {
     }
 
     pub fn get_type<'a>(&'a self, var_id: u32) -> Option<&'a PrintableType> {
-        self.id_to_type.get(&var_id)
+        self.variables.get(&var_id).and_then(|(_,type_id)| {
+            self.id_to_type.get(&type_id)
+        })
     }
 }
 

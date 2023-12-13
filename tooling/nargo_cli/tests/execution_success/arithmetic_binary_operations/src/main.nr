@@ -14,8 +14,8 @@ fn main(x: Field, y: Field, z: Field) -> pub Field {
     //let c = b * z; // 2 * 5 = 10
     let mut a = 4;
     a *= 111;
-    let mut q = [1,2,3];
-    q[0] += 100;
+    let mut q = (1,2,3);
+    q.0 += 100;
     println(f"a={a} q={q}");
     //let d = c / a; // 10 / 6 (This uses field inversion, so we test it by multiplying by `a`)
     //d * a

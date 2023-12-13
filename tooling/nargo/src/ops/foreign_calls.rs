@@ -168,7 +168,7 @@ impl DefaultForeignCallExecutor {
                 if let (
                     Some(ds),
                     Some(ForeignCallParam::Single(var_id_value)),
-                    Some(fcp_value@ForeignCallParam::Single(value)),
+                    Some(fcp_value@ForeignCallParam::Single(_value)),
                     Some(ForeignCallParam::Single(indexes_len_value)),
                 ) = (
                     debug_vars,
