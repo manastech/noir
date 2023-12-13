@@ -128,7 +128,9 @@ fn create_value(ptype: &PrintableType, values: &[Value]) -> PrintableValue {
             )
         },
         PrintableType::Tuple { types } => {
-            PrintableValue::Vec(types.iter().zip(values.iter())
+            let default_value = 0u128.into();
+            let padded_values = values.iter().chain(std::iter::repeat(&default_value));
+            PrintableValue::Vec(types.iter().zip(padded_values)
                 .map(|(typ,v)| create_value(typ, &[*v]))
                 .collect()
             )
