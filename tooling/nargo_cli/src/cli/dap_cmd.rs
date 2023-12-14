@@ -67,7 +67,11 @@ fn load_and_compile_project(
     let compiled_program = compile_bin_package(
         &workspace,
         package,
-        &CompileOptions::default(),
+        &CompileOptions {
+            instrument_debug: true,
+            force_brillig: true,
+            ..CompileOptions::default()
+        },
         np_language,
         &opcode_support,
     )
