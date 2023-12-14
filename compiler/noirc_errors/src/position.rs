@@ -86,7 +86,7 @@ impl Span {
         self.0.end().into()
     }
 
-    pub fn from_str(s: &str) -> Span {
+    pub fn build_from_str(s: &str) -> Span {
         Span(ByteSpan::from_str(s))
     }
 

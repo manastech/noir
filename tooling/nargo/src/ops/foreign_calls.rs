@@ -11,6 +11,7 @@ pub trait ForeignCallExecutor {
         &mut self,
         foreign_call: &ForeignCallWaitInfo,
     ) -> Result<ForeignCallResult, ForeignCallError>;
+
     fn execute_with_debug_vars(
         &mut self,
         foreign_call: &ForeignCallWaitInfo,
@@ -159,19 +160,35 @@ impl DefaultForeignCallExecutor {
                 Ok(ForeignCallResult { values: vec![] })
             }
             Some(ForeignCall::DebugMemberAssign) => {
-                let fcp_var_id = &foreign_call.inputs[0];
-                let fcp_indexes = &foreign_call.inputs[1];
-                let fcp_value = &foreign_call.inputs[2];
                 if let (
                     Some(ds),
-                    ForeignCallParam::Single(var_id_value),
-                    ForeignCallParam::Array(indexes_value),
-                    ForeignCallParam::Single(_value),
-                ) = (debug_vars, fcp_var_id, fcp_indexes, fcp_value)
-                {
+                    Some(ForeignCallParam::Single(var_id_value)),
+                    Some(fcp_value @ ForeignCallParam::Single(_value)),
+                    Some(ForeignCallParam::Single(indexes_len_value)),
+                ) = (
+                    debug_vars,
+                    foreign_call.inputs.get(0),
+                    foreign_call.inputs.get(1),
+                    foreign_call.inputs.get(2),
+                ) {
+                    let indexes_value: Vec<u32> = (0..indexes_len_value.to_u128() as usize)
+                        .map(|i| {
+                            foreign_call
+                                .inputs
+                                .get(3 + i)
+                                .and_then(|fcp_v| {
+                                    if let ForeignCallParam::Single(v) = fcp_v {
+                                        Some(v.to_u128() as u32)
+                                    } else {
+                                        None
+                                    }
+                                })
+                                .expect("expected index not defined")
+                        })
+                        .collect();
                     let var_id = var_id_value.to_u128() as u32;
-                    let indexes: Vec<u32> =
-                        indexes_value.iter().map(|v| v.to_u128() as u32).collect();
+                    let len = indexes_len_value.to_u128() as usize;
+                    let indexes: Vec<u32> = indexes_value[0..len].to_vec();
                     ds.assign_field(var_id, indexes, &fcp_value.values());
                 }
                 Ok(ForeignCallResult { values: vec![] })

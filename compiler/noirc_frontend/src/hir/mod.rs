@@ -26,6 +26,7 @@ pub struct Context {
     pub file_manager: FileManager,
     pub root_crate_id: CrateId,
     pub debug_state: DebugState,
+    pub instrument_debug: bool,
 
     /// A map of each file that already has been visited from a prior `mod foo;` declaration.
     /// This is used to issue an error if a second `mod foo;` is declared to the same file.
@@ -56,6 +57,7 @@ impl Context {
             root_crate_id: CrateId::Dummy,
             debug_state: DebugState::default(),
             storage_slots: HashMap::new(),
+            instrument_debug: false,
         }
     }
 
@@ -212,18 +214,6 @@ impl Context {
         module_id.module(&self.def_maps)
     }
 
-    // /// Returns the next available storage slot in the given module.
-    // /// Returns None if the given module is not a contract module.
-    // fn next_storage_slot(&mut self, module_id: def_map::ModuleId) -> Option<StorageSlot> {
-    //     let module = self.module(module_id);
-
-    //     module.is_contract.then(|| {
-    //         let next_slot = self.storage_slots.entry(module_id).or_insert(0);
-    //         *next_slot += 1;
-    //         *next_slot
-    //     })
-    // }
-
     /// Given a FileId, fetch the File, from the FileManager and parse its content,
     /// applying sorting and debug transforms if debug mode is enabled.
     pub fn parse_file(
@@ -233,7 +223,7 @@ impl Context {
     ) -> (SortedModule, Vec<ParserError>) {
         let (mut ast, parsing_errors) = parse_file(&self.file_manager, file_id);
 
-        if crate_id == self.root_crate_id {
+        if self.instrument_debug && crate_id == self.root_crate_id {
             self.debug_state.insert_symbols(&mut ast);
         }
         (ast.into_sorted(), parsing_errors)

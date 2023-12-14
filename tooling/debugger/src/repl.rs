@@ -75,6 +75,37 @@ impl<'a, B: BlackBoxFunctionSolver> ReplDebugger<'a, B> {
         }
     }
 
+    fn show_stack_frame(&self, index: usize, location: &OpcodeLocation) {
+        let opcodes = self.context.get_opcodes();
+        match location {
+            OpcodeLocation::Acir(ip) => {
+                println!("Frame #{index}, opcode {}: {}", ip, opcodes[*ip])
+            }
+            OpcodeLocation::Brillig { acir_index, brillig_index } => {
+                let Opcode::Brillig(ref brillig) = opcodes[*acir_index] else {
+                    unreachable!("Brillig location does not contain a Brillig block");
+                };
+                println!(
+                    "Frame #{index}, opcode {}.{}: {:?}",
+                    acir_index, brillig_index, brillig.bytecode[*brillig_index]
+                );
+            }
+        }
+        self.show_source_code_location(location);
+    }
+
+    pub fn show_current_call_stack(&self) {
+        let call_stack = self.context.get_call_stack();
+        if call_stack.is_empty() {
+            println!("Finished execution. Call stack empty.");
+            return;
+        }
+
+        for (i, frame_location) in call_stack.iter().enumerate() {
+            self.show_stack_frame(i, frame_location);
+        }
+    }
+
     fn print_location_path(&self, loc: Location) {
         let line_number = self.debug_artifact.location_line_number(loc).unwrap();
         let column_number = self.debug_artifact.location_column_number(loc).unwrap();
@@ -89,7 +120,9 @@ impl<'a, B: BlackBoxFunctionSolver> ReplDebugger<'a, B> {
         let locations = self.debug_artifact.debug_symbols[0].opcode_location(location);
         let Some(locations) = locations else { return };
         for loc in locations {
-            if loc.span.start() == loc.span.end() {
+            if loc.span.start() == loc.span.end()
+                || self.context.is_source_location_in_debug_module(&loc)
+            {
                 continue;
             }
             self.print_location_path(loc);
@@ -566,6 +599,16 @@ pub fn run<B: BlackBoxFunctionSolver>(
                 "update a Brillig memory cell with the given value",
                 (index: usize, value: String) => |index, value| {
                     ref_context.borrow_mut().write_brillig_memory(index, value);
+                    Ok(CommandStatus::Done)
+                }
+            },
+        )
+        .add(
+            "stacktrace",
+            command! {
+                "display the current stack trace",
+                () => || {
+                    ref_context.borrow().show_current_call_stack();
                     Ok(CommandStatus::Done)
                 }
             },

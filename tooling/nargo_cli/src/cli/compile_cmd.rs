@@ -176,6 +176,9 @@ fn compile_program(
     is_opcode_supported: &impl Fn(&Opcode) -> bool,
 ) -> (FileManager, CompilationResult<CompiledProgram>) {
     let (mut context, crate_id) = prepare_package(package);
+    if compile_options.instrument_debug {
+        context.instrument_debug = true;
+    }
 
     let program_artifact_path = workspace.package_build_path(package);
     let mut debug_artifact_path = program_artifact_path.clone();

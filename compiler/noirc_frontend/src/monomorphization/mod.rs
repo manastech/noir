@@ -24,7 +24,9 @@ use crate::{
         stmt::{HirAssignStatement, HirLValue, HirLetStatement, HirPattern, HirStatement},
         types,
     },
-    node_interner::{self, DefinitionKind, NodeInterner, StmtId, TraitImplKind, TraitMethodId},
+    node_interner::{
+        self, DefinitionKind, ExprId, NodeInterner, StmtId, TraitImplKind, TraitMethodId,
+    },
     token::FunctionAttribute,
     ContractFunctionType, FunctionKind, Type, TypeBinding, TypeBindings, TypeVariableKind,
     Visibility,
@@ -68,7 +70,7 @@ struct Monomorphizer<'interner> {
     finished_functions: BTreeMap<FuncId, Function>,
 
     /// Used to reference existing definitions in the HIR
-    interner: &'interner NodeInterner,
+    interner: &'interner mut NodeInterner,
 
     lambda_envs_stack: Vec<LambdaContext>,
 
@@ -80,6 +82,7 @@ struct Monomorphizer<'interner> {
     return_location: Option<Location>,
 
     debug_types: DebugTypes,
+    debug_field_names: HashMap<u32, String>,
 }
 
 type HirType = crate::Type;
@@ -95,9 +98,29 @@ type HirType = crate::Type;
 /// Note that there is no requirement on the `main` function that can be passed into
 /// this function. Typically, this is the function named "main" in the source project,
 /// but it can also be, for example, an arbitrary test function for running `nargo test`.
-pub fn monomorphize(main: node_interner::FuncId, interner: &NodeInterner) -> Program {
+pub fn monomorphize(main: node_interner::FuncId, interner: &mut NodeInterner) -> Program {
+    monomorphize_option_debug(main, interner, None)
+}
+
+pub fn monomorphize_debug(
+    main: node_interner::FuncId,
+    interner: &mut NodeInterner,
+    field_names: &HashMap<u32, String>,
+) -> Program {
+    monomorphize_option_debug(main, interner, Some(field_names))
+}
+
+fn monomorphize_option_debug(
+    main: node_interner::FuncId,
+    interner: &mut NodeInterner,
+    option_field_names: Option<&HashMap<u32, String>>,
+) -> Program {
     let mut monomorphizer = Monomorphizer::new(interner);
-    let function_sig = monomorphizer.compile_main(main);
+    let function_sig = if let Some(field_names) = option_field_names {
+        monomorphizer.compile_main_debug(main, field_names)
+    } else {
+        monomorphizer.compile_main(main)
+    };
 
     while !monomorphizer.queue.is_empty() {
         let (next_fn_id, new_id, bindings) = monomorphizer.queue.pop_front().unwrap();
@@ -109,7 +132,8 @@ pub fn monomorphize(main: node_interner::FuncId, interner: &NodeInterner) -> Pro
     }
 
     let functions = vecmap(monomorphizer.finished_functions, |(_, f)| f);
-    let FuncMeta { return_distinctness, return_visibility, .. } = interner.function_meta(&main);
+    let FuncMeta { return_distinctness, return_visibility, .. } =
+        monomorphizer.interner.function_meta(&main);
     Program::new(
         functions,
         function_sig,
@@ -121,7 +145,7 @@ pub fn monomorphize(main: node_interner::FuncId, interner: &NodeInterner) -> Pro
 }
 
 impl<'interner> Monomorphizer<'interner> {
-    fn new(interner: &'interner NodeInterner) -> Self {
+    fn new(interner: &'interner mut NodeInterner) -> Self {
         Monomorphizer {
             globals: HashMap::new(),
             locals: HashMap::new(),
@@ -134,6 +158,7 @@ impl<'interner> Monomorphizer<'interner> {
             is_range_loop: false,
             return_location: None,
             debug_types: DebugTypes::default(),
+            debug_field_names: HashMap::default(),
         }
     }
 
@@ -224,29 +249,42 @@ impl<'interner> Monomorphizer<'interner> {
         main_meta.into_function_signature()
     }
 
+    fn compile_main_debug(
+        &mut self,
+        main_id: node_interner::FuncId,
+        field_names: &HashMap<u32, String>,
+    ) -> FunctionSignature {
+        self.debug_field_names = field_names.clone();
+        self.compile_main(main_id)
+    }
+
     fn function(&mut self, f: node_interner::FuncId, id: FuncId) {
         if let Some((self_type, trait_id)) = self.interner.get_function_trait(&f) {
             let the_trait = self.interner.get_trait(trait_id);
             the_trait.self_type_typevar.force_bind(self_type);
         }
 
-        let meta = self.interner.function_meta(&f);
-        let modifiers = self.interner.function_modifiers(&f);
-        let name = self.interner.function_name(&f).to_owned();
+        let (meta_parameters, unconstrained, body_expr_id, name, return_type) = {
+            let meta = self.interner.function_meta(&f).clone();
+            let modifiers = self.interner.function_modifiers(&f).clone();
+            let name = self.interner.function_name(&f).to_string();
 
-        let body_expr_id = *self.interner.function(&f).as_expr();
-        let body_return_type = self.interner.id_type(body_expr_id);
-        let return_type = self.convert_type(match meta.return_type() {
-            Type::TraitAsType(..) => &body_return_type,
-            _ => meta.return_type(),
-        });
+            let body_expr_id = *self.interner.function(&f).as_expr();
+            let body_return_type = self.interner.id_type(body_expr_id);
+            let return_type = self.convert_type(match meta.return_type() {
+                Type::TraitAsType(_, _) => &body_return_type,
+                _ => meta.return_type(),
+            });
+            let unconstrained = modifiers.is_unconstrained
+                || matches!(modifiers.contract_function_type, Some(ContractFunctionType::Open));
+            (meta.parameters, unconstrained, body_expr_id, name, return_type)
+        };
 
-        let parameters = self.parameters(meta.parameters);
-        let body = self.expr(body_expr_id);
-        let unconstrained = modifiers.is_unconstrained
-            || matches!(modifiers.contract_function_type, Some(ContractFunctionType::Open));
-
-        let function = ast::Function { id, name, parameters, body, return_type, unconstrained };
+        let function = {
+            let parameters = self.parameters(meta_parameters).clone();
+            let body = self.expr(body_expr_id).clone();
+            ast::Function { id, name, parameters, body, return_type, unconstrained }
+        };
         self.push_function(id, function);
     }
 
@@ -892,14 +930,12 @@ impl<'interner> Monomorphizer<'interner> {
         let original_func = Box::new(self.expr(call.func));
         let mut arguments = vecmap(&call.arguments, |id| self.expr(*id));
         let hir_arguments = vecmap(&call.arguments, |id| self.interner.expression(id));
-        if let (ast::Expression::Ident(ast::Ident { name, .. }), 2) =
-            (original_func.as_ref(), arguments.len())
-        {
+        if let ast::Expression::Ident(ast::Ident { name, .. }) = original_func.as_ref() {
             if let (
-                HirExpression::Literal(HirLiteral::Integer(fe_var_id, _)),
-                HirExpression::Ident(HirIdent { id, .. }),
+                Some(HirExpression::Literal(HirLiteral::Integer(fe_var_id, _))),
+                Some(HirExpression::Ident(HirIdent { id, .. })),
                 true,
-            ) = (&hir_arguments[0], &hir_arguments[1], name == "__debug_var_assign")
+            ) = (hir_arguments.get(0), hir_arguments.get(1), name == "__debug_var_assign")
             {
                 let var_def = self.interner.definition(*id);
                 let var_type = self.interner.id_type(call.arguments[1]);
@@ -908,17 +944,86 @@ impl<'interner> Monomorphizer<'interner> {
                     self.debug_types.insert_var(var_id, &var_def.name, var_type);
                 }
             } else if let (
-                HirExpression::Literal(HirLiteral::Integer(fe_var_id, _)),
-                HirExpression::Ident(HirIdent { id, .. }),
+                Some(HirExpression::Literal(HirLiteral::Integer(fe_var_id, _))),
+                Some(HirExpression::Literal(HirLiteral::Array(HirArrayLiteral::Standard(
+                    indexes_vec,
+                )))),
+                Some(HirExpression::Ident(HirIdent { id, .. })),
                 true,
-            ) =
-                (&hir_arguments[0], &hir_arguments[1], name == "__debug_member_assign_placeholder")
-            {
-                let var_def = self.interner.definition(*id);
-                let var_type = self.interner.id_type(call.arguments[1]);
+            ) = (
+                hir_arguments.get(0),
+                hir_arguments.get(1),
+                hir_arguments.get(2),
+                name == "__debug_member_assign",
+            ) {
+                let var_def_name = self.interner.definition(*id).name.clone();
+                let indexes_type = self.interner.id_type(call.arguments[1]);
+                let var_type = self.interner.id_type(call.arguments[2]);
                 let var_id = fe_var_id.to_u128() as u32;
-                if var_def.name != "__debug_expr" {
-                    self.debug_types.insert_var(var_id, &var_def.name, var_type);
+
+                let mut cursor_type = self
+                    .debug_types
+                    .get_type(var_id)
+                    .unwrap_or_else(|| panic!("type not found for var_id={var_id}"))
+                    .clone();
+                let indexes: Vec<ExprId> = indexes_vec
+                    .iter()
+                    .map(|i_id| {
+                        if let ast::Expression::Literal(ast::Literal::Integer(
+                            fe,
+                            _type,
+                            _location,
+                        )) = self.expr(*i_id)
+                        {
+                            let i = fe
+                                .to_string()
+                                .parse::<i128>()
+                                .expect("unable to parse field element as i128");
+                            if i < 0 {
+                                let i = i.unsigned_abs();
+                                let field_name =
+                                    self.debug_field_names.get(&(i as u32)).unwrap_or_else(|| {
+                                        panic!("field name not available for {i:?}")
+                                    });
+                                let field_i =
+                                    get_field(&cursor_type, field_name).unwrap_or_else(|| {
+                                        panic!("failed to find field_name: {field_name}")
+                                    }) as u128;
+                                cursor_type = next_type(&cursor_type, field_i as usize);
+                                let index_id = self.interner.push_expr(HirExpression::Literal(
+                                    HirLiteral::Integer(field_i.into(), false),
+                                ));
+                                self.interner.push_expr_type(&index_id, Type::FieldElement);
+                                self.interner.push_expr_location(
+                                    index_id,
+                                    call.location.span,
+                                    call.location.file,
+                                );
+                                index_id
+                            } else {
+                                cursor_type = next_type(&cursor_type, 0);
+                                *i_id
+                            }
+                        } else {
+                            cursor_type = next_type(&cursor_type, 0);
+                            *i_id
+                        }
+                    })
+                    .collect();
+
+                let index_array_id = self.interner.push_expr(HirExpression::Literal(
+                    HirLiteral::Array(HirArrayLiteral::Standard(indexes)),
+                ));
+                self.interner.push_expr_type(&index_array_id, indexes_type);
+                self.interner.push_expr_location(
+                    index_array_id,
+                    call.location.span,
+                    call.location.file,
+                );
+                arguments[1] = self.expr(index_array_id);
+
+                if &var_def_name != "__debug_expr" {
+                    self.debug_types.insert_var(var_id, &var_def_name, var_type);
                 }
             }
         }
@@ -1484,5 +1589,32 @@ fn perform_instantiation_bindings(bindings: &TypeBindings) {
 fn undo_instantiation_bindings(bindings: TypeBindings) {
     for (id, (var, _)) in bindings {
         var.unbind(id);
+    }
+}
+
+fn get_field(ptype: &PrintableType, field_name: &str) -> Option<usize> {
+    match ptype {
+        PrintableType::Struct { fields, .. } => {
+            fields.iter().position(|(name, _)| name == field_name)
+        }
+        PrintableType::Tuple { .. } | PrintableType::Array { .. } => {
+            field_name.parse::<usize>().ok()
+        }
+        _ => None,
+    }
+}
+
+fn next_type(ptype: &PrintableType, i: usize) -> PrintableType {
+    match ptype {
+        PrintableType::Array { length: _length, typ } => (**typ).clone(),
+        PrintableType::Tuple { types } => types[i].clone(),
+        PrintableType::Struct { name: _name, fields } => fields[i].1.clone(),
+        PrintableType::String { length: _length } => {
+            // TODO: check bounds
+            PrintableType::UnsignedInteger { width: 8 }
+        }
+        _ => {
+            panic!["expected type with sub-fields, found terminal type"]
+        }
     }
 }

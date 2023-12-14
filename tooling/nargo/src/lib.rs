@@ -95,7 +95,7 @@ pub fn prepare_package(package: &Package) -> (Context, CrateId) {
     let mut context = Context::new(fm, graph);
 
     let crate_id = prepare_crate(&mut context, &package.entry_path);
-    context.root_crate_id = crate_id.clone();
+    context.root_crate_id = crate_id;
 
     prepare_dependencies(&mut context, crate_id, &package.dependencies);
 

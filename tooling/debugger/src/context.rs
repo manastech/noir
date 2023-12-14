@@ -85,15 +85,49 @@ impl<'a, B: BlackBoxFunctionSolver> DebugContext<'a, B> {
         }
     }
 
+    pub(super) fn get_call_stack(&self) -> Vec<OpcodeLocation> {
+        let ip = self.acvm.instruction_pointer();
+        if ip >= self.get_opcodes().len() {
+            vec![]
+        } else if let Some(ref solver) = self.brillig_solver {
+            solver
+                .get_call_stack()
+                .iter()
+                .map(|pc| OpcodeLocation::Brillig { acir_index: ip, brillig_index: *pc })
+                .collect()
+        } else {
+            vec![OpcodeLocation::Acir(ip)]
+        }
+    }
+
+    pub(super) fn is_source_location_in_debug_module(&self, location: &Location) -> bool {
+        self.debug_artifact
+            .file_map
+            .get(&location.file)
+            .map(|file| file.path.starts_with("__debug/"))
+            .unwrap_or(false)
+    }
+
     /// Returns the callstack in source code locations for the currently
     /// executing opcode. This can be `None` if the execution finished (and
     /// `get_current_opcode_location()` returns `None`) or if the opcode is not
     /// mapped to a specific source location in the debug artifact (which can
-    /// happen for certain opcodes inserted synthetically by the compiler)
+    /// happen for certain opcodes inserted synthetically by the compiler).
+    /// This function also filters source locations that are determined to be in
+    /// the internal debug module.
     pub(super) fn get_current_source_location(&self) -> Option<Vec<Location>> {
         self.get_current_opcode_location()
             .as_ref()
             .and_then(|location| self.debug_artifact.debug_symbols[0].opcode_location(location))
+            .map(|source_locations| {
+                source_locations
+                    .into_iter()
+                    .filter(|source_location| {
+                        !self.is_source_location_in_debug_module(source_location)
+                    })
+                    .collect()
+            })
+            .filter(|v: &Vec<Location>| !v.is_empty())
     }
 
     fn get_opcodes_sizes(&self) -> Vec<usize> {

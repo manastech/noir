@@ -13,9 +13,7 @@ pub struct DebugVars {
 
 impl DebugVars {
     pub fn new(vars: &HashMap<u32, String>) -> Self {
-        let mut debug_vars = Self::default();
-        debug_vars.id_to_name = vars.clone();
-        debug_vars
+        Self { id_to_name: vars.clone(), ..Self::default() }
     }
 
     pub fn get_variables(&self) -> Vec<(&str, &PrintableValue, &PrintableType)> {
@@ -52,7 +50,7 @@ impl DebugVars {
         self.active.insert(var_id);
         // TODO: assign values as PrintableValue
         let type_id = self.id_to_type.get(&var_id).unwrap();
-        let ptype = self.types.get(&type_id).unwrap();
+        let ptype = self.types.get(type_id).unwrap();
         self.id_to_value.insert(var_id, create_value(ptype, values));
     }
 
@@ -60,15 +58,15 @@ impl DebugVars {
         let mut cursor: &mut PrintableValue = self
             .id_to_value
             .get_mut(&var_id)
-            .expect(&format!["value unavailable for var_id {var_id}"]);
+            .unwrap_or_else(|| panic!("value unavailable for var_id {var_id}"));
         let cursor_type_id = self
             .id_to_type
             .get(&var_id)
-            .expect(&format!["type id unavailable for var_id {var_id}"]);
+            .unwrap_or_else(|| panic!("type id unavailable for var_id {var_id}"));
         let mut cursor_type = self
             .types
             .get(cursor_type_id)
-            .expect(&format!["type unavailable for type id {cursor_type_id}"]);
+            .unwrap_or_else(|| panic!("type unavailable for type id {cursor_type_id}"));
         for index in indexes.iter() {
             (cursor, cursor_type) = match (cursor, cursor_type) {
                 (PrintableValue::Vec(array), PrintableType::Array { length, typ }) => {
@@ -80,19 +78,35 @@ impl DebugVars {
                     }
                     (array.get_mut(*index as usize).unwrap(), &*Box::leak(typ.clone()))
                 }
-                (PrintableValue::Struct(field_map), PrintableType::Struct { name: _, fields }) => {
+                (
+                    PrintableValue::Struct(field_map),
+                    PrintableType::Struct { name: _name, fields },
+                ) => {
                     if *index as usize >= fields.len() {
                         panic!("unexpected field index past struct field length")
                     }
                     let (key, typ) = fields.get(*index as usize).unwrap();
                     (field_map.get_mut(key).unwrap(), typ)
                 }
+                (PrintableValue::Vec(array), PrintableType::Tuple { types }) => {
+                    if *index >= types.len() as u32 {
+                        panic!(
+                            "unexpected field index ({index}) past tuple length ({})",
+                            types.len()
+                        );
+                    }
+                    if types.len() != array.len() {
+                        panic!("type/array length mismatch")
+                    }
+                    let typ = types.get(*index as usize).unwrap();
+                    (array.get_mut(*index as usize).unwrap(), typ)
+                }
                 _ => {
                     panic!("unexpected assign field of {cursor_type:?} type");
                 }
             };
         }
-        assign_values(cursor, values);
+        *cursor = create_value(cursor_type, values);
         self.active.insert(var_id);
     }
 
@@ -101,7 +115,7 @@ impl DebugVars {
         unimplemented![]
     }
 
-    pub fn get<'a>(&'a mut self, var_id: u32) -> Option<&'a PrintableValue> {
+    pub fn get(&mut self, var_id: u32) -> Option<&PrintableValue> {
         self.id_to_value.get(&var_id)
     }
 
@@ -128,15 +142,23 @@ fn create_value(ptype: &PrintableType, values: &[Value]) -> PrintableValue {
             }
             PrintableValue::Vec(values.iter().map(|v| create_value(typ, &[*v])).collect())
         }
-        PrintableType::Struct { name: _name, fields: _fields } => {
-            unimplemented![]
+        PrintableType::Tuple { types } => {
+            let default_value = 0u128.into();
+            let padded_values = values.iter().chain(std::iter::repeat(&default_value));
+            PrintableValue::Vec(
+                types.iter().zip(padded_values).map(|(typ, v)| create_value(typ, &[*v])).collect(),
+            )
         }
-        PrintableType::String { length: _length } => {
-            unimplemented![]
-        }
+        PrintableType::Struct { name: _name, fields } => PrintableValue::Struct(
+            fields
+                .iter()
+                .zip(values.iter())
+                .map(|((key, stype), v)| (key.clone(), create_value(stype, &[*v])))
+                .collect(),
+        ),
+        PrintableType::String { length: _length } => PrintableValue::String(
+            String::from_utf8(values.iter().map(|v| v.to_field().to_u128() as u8).collect())
+                .expect("string utf8 decode failed"),
+        ),
     }
-}
-
-fn assign_values(_dst: &mut PrintableValue, _values: &[Value]) {
-    //unimplemented![]
 }

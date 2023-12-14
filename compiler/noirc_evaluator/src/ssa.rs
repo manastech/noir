@@ -39,10 +39,11 @@ pub(crate) fn optimize_into_acir(
     program: Program,
     print_ssa_passes: bool,
     print_brillig_trace: bool,
+    force_brillig_output: bool,
 ) -> Result<GeneratedAcir, RuntimeError> {
     let abi_distinctness = program.return_distinctness;
 
-    let ssa_builder = SsaBuilder::new(program, print_ssa_passes)?
+    let ssa_builder = SsaBuilder::new(program, print_ssa_passes, force_brillig_output)?
         .run_pass(Ssa::defunctionalize, "After Defunctionalization:")
         .run_pass(Ssa::inline_functions, "After Inlining:")
         // Run mem2reg with the CFG separated into blocks
@@ -82,11 +83,16 @@ pub fn create_circuit(
     program: Program,
     enable_ssa_logging: bool,
     enable_brillig_logging: bool,
+    force_brillig_output: bool,
 ) -> Result<(Circuit, DebugInfo, Vec<Witness>, Vec<Witness>, Vec<SsaReport>), RuntimeError> {
     let debug_var_types = program.debug_var_types.clone();
     let func_sig = program.main_function_signature.clone();
-    let mut generated_acir =
-        optimize_into_acir(program, enable_ssa_logging, enable_brillig_logging)?;
+    let mut generated_acir = optimize_into_acir(
+        program,
+        enable_ssa_logging,
+        enable_brillig_logging,
+        force_brillig_output,
+    )?;
     let opcodes = generated_acir.take_opcodes();
     let GeneratedAcir {
         current_witness_index,
@@ -169,8 +175,12 @@ struct SsaBuilder {
 }
 
 impl SsaBuilder {
-    fn new(program: Program, print_ssa_passes: bool) -> Result<SsaBuilder, RuntimeError> {
-        let ssa = ssa_gen::generate_ssa(program)?;
+    fn new(
+        program: Program,
+        print_ssa_passes: bool,
+        force_brillig_runtime: bool,
+    ) -> Result<SsaBuilder, RuntimeError> {
+        let ssa = ssa_gen::generate_ssa(program, force_brillig_runtime)?;
         Ok(SsaBuilder { print_ssa_passes, ssa }.print("Initial SSA:"))
     }
 
