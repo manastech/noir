@@ -5,14 +5,14 @@ use crate::{
     parser::{Item, ItemKind},
 };
 use noirc_errors::{Span, Spanned};
-use std::collections::VecDeque;
 use std::collections::HashMap;
+use std::collections::VecDeque;
 
 #[derive(Debug, Clone)]
 pub struct DebugState {
     pub variables: HashMap<u32, String>, // var_id => var_name
     next_var_id: u32,
-    scope: Vec<HashMap<String,u32>>, // var_name => var_id
+    scope: Vec<HashMap<String, u32>>, // var_name => var_id
     pub enabled: bool,
 }
 
@@ -37,9 +37,7 @@ impl DebugState {
     }
 
     fn lookup_var(&self, var_name: &str) -> Option<u32> {
-        self.scope.iter().rev().find_map(|vars| {
-            vars.get(var_name).copied()
-        })
+        self.scope.iter().rev().find_map(|vars| vars.get(var_name).copied())
     }
 
     fn walk_fn(&mut self, f: &mut ast::FunctionDefinition) {
@@ -104,7 +102,7 @@ impl DebugState {
                 .pop()
                 .unwrap_or(HashMap::default())
                 .iter()
-                .map(|(_var_name,var_id)| self.wrap_drop_var(*var_id))
+                .map(|(_var_name, var_id)| self.wrap_drop_var(*var_id))
                 .collect(),
             // return the __debug_expr value:
             vec![match &ret_stmt.kind {
@@ -154,10 +152,7 @@ impl DebugState {
                 }),
                 span: none_span(),
             }),
-            arguments: vec![
-                int_expr(var_id as u128),
-                expr,
-            ],
+            arguments: vec![int_expr(var_id as u128), expr],
         }));
         ast::Statement {
             kind: ast::StatementKind::Semi(ast::Expression { kind, span: none_span() }),
@@ -186,27 +181,28 @@ impl DebugState {
         &mut self,
         var_id: u32,
         indexes: &[ast::Expression],
-        fields: &[(u32,String)],
+        fields: &[(u32, String)],
         expr: &ast::Expression,
     ) -> ast::Statement {
         let index_expr = ast::Expression {
-            kind: ast::ExpressionKind::Literal(ast::Literal::Array(
-                ast::ArrayLiteral::Standard(indexes.to_vec())
-            )),
+            kind: ast::ExpressionKind::Literal(ast::Literal::Array(ast::ArrayLiteral::Standard(
+                indexes.to_vec(),
+            ))),
             span: none_span(),
         };
         let field_name_expr = ast::Expression {
-            kind: ast::ExpressionKind::Literal(ast::Literal::Array(
-                ast::ArrayLiteral::Standard(fields.iter().map(|(i,name)| {
-                    ast::Expression {
+            kind: ast::ExpressionKind::Literal(ast::Literal::Array(ast::ArrayLiteral::Standard(
+                fields
+                    .iter()
+                    .map(|(i, name)| ast::Expression {
                         kind: ast::ExpressionKind::Tuple(vec![
                             int_expr(*i as u128),
                             byte_array_expr(name.as_bytes()),
                         ]),
                         span: none_span(),
-                    }
-                }).collect()),
-            )),
+                    })
+                    .collect(),
+            ))),
             span: none_span(),
         };
         let kind = ast::ExpressionKind::Call(Box::new(ast::CallExpression {
@@ -315,42 +311,45 @@ impl DebugState {
         });
         let new_assign_stmt = match &assign_stmt.lvalue {
             ast::LValue::Ident(id) => {
-                let var_id = self.lookup_var(&id.0.contents)
+                let var_id = self
+                    .lookup_var(&id.0.contents)
                     .expect(&format!["var lookup failed for var_name={}", &id.0.contents]);
                 self.wrap_assign_var(var_id, id_expr(&ident("__debug_expr")))
-            },
+            }
             ast::LValue::Dereference(_lv) => {
                 // TODO
                 unimplemented![]
-            },
+            }
             _ => {
                 let mut indexes = vec![];
-                let mut fields: Vec<(u32,String)> = vec![]; // (member index, field_name ident string)
+                let mut fields: Vec<(u32, String)> = vec![]; // (member index, field_name ident string)
                 let mut cursor = &assign_stmt.lvalue;
                 let var_id;
                 loop {
                     match cursor {
                         ast::LValue::Ident(id) => {
-                            var_id = self.lookup_var(&id.0.contents)
-                                .expect(&format!["var lookup failed for var_name={}", &id.0.contents]);
+                            var_id = self.lookup_var(&id.0.contents).expect(&format![
+                                "var lookup failed for var_name={}",
+                                &id.0.contents
+                            ]);
                             break;
-                        },
+                        }
                         ast::LValue::MemberAccess { object, field_name } => {
                             cursor = object;
                             fields.push((indexes.len() as u32, field_name.0.contents.to_string()));
                             indexes.push(int_expr(0u128)); // this 0 will get overwritten
-                        },
+                        }
                         ast::LValue::Index { index, array } => {
                             cursor = array;
                             indexes.push(index.clone());
-                        },
+                        }
                         ast::LValue::Dereference(_ref) => {
                             unimplemented![]
-                        },
+                        }
                     }
                 }
                 self.wrap_assign_member(var_id, &indexes, &fields, &id_expr(&ident("__debug_expr")))
-            },
+            }
         };
         let ret_kind = ast::StatementKind::Expression(id_expr(&ident("__debug_expr")));
 
@@ -586,7 +585,7 @@ fn int_expr(x: u128) -> ast::Expression {
 fn byte_array_expr(bytes: &[u8]) -> ast::Expression {
     vec_from_slice(&ast::Expression {
         kind: ast::ExpressionKind::Literal(ast::Literal::Array(ast::ArrayLiteral::Standard(
-            bytes.iter().map(|b| int_expr(*b as u128)).collect()
+            bytes.iter().map(|b| int_expr(*b as u128)).collect(),
         ))),
         span: none_span(),
     })

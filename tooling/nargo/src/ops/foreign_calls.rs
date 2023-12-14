@@ -21,13 +21,13 @@ pub trait ForeignCallExecutor {
 /// This enumeration represents the Brillig foreign calls that are natively supported by nargo.
 /// After resolution of a foreign call, nargo will restart execution of the ACVM
 pub(crate) enum ForeignCall {
-    Println,
     DebugVarAssign,
     DebugVarDrop,
     DebugMemberAssign,
     DebugDerefAssign,
     Sequence,
     ReverseSequence,
+    Print,
     CreateMock,
     SetMockParams,
     SetMockReturns,
@@ -44,13 +44,13 @@ impl std::fmt::Display for ForeignCall {
 impl ForeignCall {
     pub(crate) fn name(&self) -> &'static str {
         match self {
-            ForeignCall::Println => "println",
             ForeignCall::DebugVarAssign => "__debug_var_assign",
             ForeignCall::DebugVarDrop => "__debug_var_drop",
             ForeignCall::DebugMemberAssign => "__debug_member_assign",
             ForeignCall::DebugDerefAssign => "__debug_deref_assign",
             ForeignCall::Sequence => "get_number_sequence",
             ForeignCall::ReverseSequence => "get_reverse_number_sequence",
+            ForeignCall::Print => "print",
             ForeignCall::CreateMock => "create_mock",
             ForeignCall::SetMockParams => "set_mock_params",
             ForeignCall::SetMockReturns => "set_mock_returns",
@@ -61,13 +61,13 @@ impl ForeignCall {
 
     pub(crate) fn lookup(op_name: &str) -> Option<ForeignCall> {
         match op_name {
-            "println" => Some(ForeignCall::Println),
             "__debug_var_assign" => Some(ForeignCall::DebugVarAssign),
             "__debug_var_drop" => Some(ForeignCall::DebugVarDrop),
             "__debug_member_assign" => Some(ForeignCall::DebugMemberAssign),
             "__debug_deref_assign" => Some(ForeignCall::DebugDerefAssign),
             "get_number_sequence" => Some(ForeignCall::Sequence),
             "get_reverse_number_sequence" => Some(ForeignCall::ReverseSequence),
+            "print" => Some(ForeignCall::Print),
             "create_mock" => Some(ForeignCall::CreateMock),
             "set_mock_params" => Some(ForeignCall::SetMockParams),
             "set_mock_returns" => Some(ForeignCall::SetMockReturns),
@@ -117,7 +117,7 @@ pub struct DefaultForeignCallExecutor {
     last_mock_id: usize,
     /// The registered mocks
     mocked_responses: Vec<MockedCall>,
-    /// Whether to print [`ForeignCall::Println`] output.
+    /// Whether to print [`ForeignCall::Print`] output.
     show_output: bool,
 }
 
@@ -133,19 +133,16 @@ impl DefaultForeignCallExecutor {
     ) -> Result<ForeignCallResult, ForeignCallError> {
         let foreign_call_name = foreign_call.function.as_str();
         match ForeignCall::lookup(foreign_call_name) {
-            Some(ForeignCall::Println) => {
+            Some(ForeignCall::Print) => {
                 if self.show_output {
-                    Self::execute_println(&foreign_call.inputs)?;
+                    Self::execute_print(&foreign_call.inputs)?;
                 }
                 Ok(ForeignCallResult { values: vec![] })
             }
             Some(ForeignCall::DebugVarAssign) => {
                 let fcp_var_id = &foreign_call.inputs[0];
                 let fcp_value = &foreign_call.inputs[1];
-                if let (
-                    Some(ds),
-                    ForeignCallParam::Single(var_id_value),
-                ) = (debug_vars, fcp_var_id)
+                if let (Some(ds), ForeignCallParam::Single(var_id_value)) = (debug_vars, fcp_var_id)
                 {
                     let var_id = var_id_value.to_u128() as u32;
                     ds.assign(var_id, &fcp_value.values());
@@ -173,7 +170,8 @@ impl DefaultForeignCallExecutor {
                 ) = (debug_vars, fcp_var_id, fcp_indexes, fcp_value)
                 {
                     let var_id = var_id_value.to_u128() as u32;
-                    let indexes: Vec<u32> = indexes_value.iter().map(|v| v.to_u128() as u32).collect();
+                    let indexes: Vec<u32> =
+                        indexes_value.iter().map(|v| v.to_u128() as u32).collect();
                     ds.assign_field(var_id, indexes, &fcp_value.values());
                 }
                 Ok(ForeignCallResult { values: vec![] })
@@ -181,10 +179,7 @@ impl DefaultForeignCallExecutor {
             Some(ForeignCall::DebugDerefAssign) => {
                 let fcp_var_id = &foreign_call.inputs[0];
                 let fcp_value = &foreign_call.inputs[1];
-                if let (
-                    Some(ds),
-                    ForeignCallParam::Single(var_id_value),
-                ) = (debug_vars, fcp_var_id)
+                if let (Some(ds), ForeignCallParam::Single(var_id_value)) = (debug_vars, fcp_var_id)
                 {
                     let var_id = var_id_value.to_u128() as u32;
                     ds.assign_deref(var_id, &fcp_value.values());
@@ -303,9 +298,14 @@ impl DefaultForeignCallExecutor {
         decode_string_value(&fields)
     }
 
-    fn execute_println(foreign_call_inputs: &[ForeignCallParam]) -> Result<(), ForeignCallError> {
-        let display_values: PrintableValueDisplay = foreign_call_inputs.try_into()?;
-        println!("{display_values}");
+    fn execute_print(foreign_call_inputs: &[ForeignCallParam]) -> Result<(), ForeignCallError> {
+        let skip_newline = foreign_call_inputs[0].unwrap_value().is_zero();
+        let display_values: PrintableValueDisplay = foreign_call_inputs
+            .split_first()
+            .ok_or(ForeignCallError::MissingForeignCallInputs)?
+            .1
+            .try_into()?;
+        print!("{display_values}{}", if skip_newline { "" } else { "\n" });
         Ok(())
     }
 }

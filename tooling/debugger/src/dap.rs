@@ -1,4 +1,3 @@
-use std::collections::btree_map::Entry;
 use std::collections::BTreeMap;
 use std::io::{Read, Write};
 use std::str::FromStr;
@@ -73,23 +72,26 @@ impl<'a, R: Read, W: Write, B: BlackBoxFunctionSolver> DapSession<'a, R, W, B> {
     }
 
     /// Builds a map from FileId to an ordered vector of tuples with line
-    /// numbers and opcode locations correspoding to those line numbers
+    /// numbers and opcode locations corresponding to those line numbers
     fn build_source_to_opcode_debug_mappings(
         debug_artifact: &'a DebugArtifact,
     ) -> BTreeMap<FileId, Vec<(usize, OpcodeLocation)>> {
-        let mut result = BTreeMap::new();
         if debug_artifact.debug_symbols.is_empty() {
-            return result;
+            return BTreeMap::new();
         }
         let locations = &debug_artifact.debug_symbols[0].locations;
-        let mut simple_files = BTreeMap::new();
-        debug_artifact.file_map.iter().for_each(|(file_id, debug_file)| {
-            simple_files.insert(
-                file_id,
-                SimpleFile::new(debug_file.path.to_str().unwrap(), debug_file.source.as_str()),
-            );
-        });
+        let simple_files: BTreeMap<_, _> = debug_artifact
+            .file_map
+            .iter()
+            .map(|(file_id, debug_file)| {
+                (
+                    file_id,
+                    SimpleFile::new(debug_file.path.to_str().unwrap(), debug_file.source.as_str()),
+                )
+            })
+            .collect();
 
+        let mut result: BTreeMap<FileId, Vec<(usize, OpcodeLocation)>> = BTreeMap::new();
         locations.iter().for_each(|(opcode_location, source_locations)| {
             if source_locations.is_empty() {
                 return;
@@ -102,11 +104,7 @@ impl<'a, R: Read, W: Write, B: BlackBoxFunctionSolver> DapSession<'a, R, W, B> {
             };
             let line_number = line_index + 1;
 
-            if let Entry::Vacant(e) = result.entry(file_id) {
-                e.insert(vec![(line_number, *opcode_location)]);
-            } else {
-                result.get_mut(&file_id).unwrap().push((line_number, *opcode_location));
-            }
+            result.entry(file_id).or_default().push((line_number, *opcode_location));
         });
         result.iter_mut().for_each(|(_, file_locations)| file_locations.sort_by_key(|x| x.0));
         result
@@ -130,7 +128,10 @@ impl<'a, R: Read, W: Write, B: BlackBoxFunctionSolver> DapSession<'a, R, W, B> {
         self.running = true;
 
         if matches!(self.context.get_current_source_location(), None) {
-            // FIXME: remove this?
+            // TODO: remove this? This is to ensure that the tool has a proper
+            // source location to show when first starting the debugger, but
+            // maybe the default behavior should be to start executing until the
+            // first breakpoint set.
             _ = self.context.next();
         }
 
@@ -458,7 +459,7 @@ impl<'a, R: Read, W: Write, B: BlackBoxFunctionSolver> DapSession<'a, R, W, B> {
         found.map(|iter| *iter.0)
     }
 
-    // FIXME: there are four possibilities for the return value of this function:
+    // TODO: there are four possibilities for the return value of this function:
     // 1. the source location is not found -> None
     // 2. an exact unique location is found -> Some(opcode_location)
     // 3. an exact but not unique location is found (ie. a source location may
@@ -506,7 +507,7 @@ impl<'a, R: Read, W: Write, B: BlackBoxFunctionSolver> DapSession<'a, R, W, B> {
                         ..Breakpoint::default()
                     };
                 };
-                // FIXME: line will not necessarily be the one requested; we
+                // TODO: line will not necessarily be the one requested; we
                 // should do the reverse mapping and retrieve the actual source
                 // code line number
                 if !self.context.is_valid_opcode_location(&location) {
@@ -591,9 +592,9 @@ pub fn run_session<R: Read, W: Write, B: BlackBoxFunctionSolver>(
     initial_witness: WitnessMap,
 ) -> Result<(), ServerError> {
     let debug_artifact = DebugArtifact {
-        debug_symbols: vec![program.debug.clone()],
-        file_map: program.file_map.clone(),
-        warnings: program.warnings.clone(),
+        debug_symbols: vec![program.debug],
+        file_map: program.file_map,
+        warnings: program.warnings,
     };
     let mut session =
         DapSession::new(server, solver, &program.circuit, &debug_artifact, initial_witness);

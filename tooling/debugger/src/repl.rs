@@ -381,9 +381,13 @@ impl<'a, B: BlackBoxFunctionSolver> ReplDebugger<'a, B> {
 
     pub fn show_vars(&self) {
         let vars = self.context.get_variables();
-        println!["{}", vars.iter().map(|(var_name, value, var_type)| {
-            format!("{var_name}:{var_type:?}={value:?}")
-        }).collect::<Vec<String>>().join(", ")];
+        println![
+            "{}",
+            vars.iter()
+                .map(|(var_name, value, var_type)| { format!("{var_name}:{var_type:?}={value:?}") })
+                .collect::<Vec<String>>()
+                .join(", ")
+        ];
     }
 
     fn is_solved(&self) -> bool {

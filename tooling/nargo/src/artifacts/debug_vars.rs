@@ -1,5 +1,5 @@
-use noirc_printable_type::{PrintableType,PrintableValue};
 use acvm::brillig_vm::brillig::Value;
+use noirc_printable_type::{PrintableType, PrintableValue};
 use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Default, Clone)]
@@ -57,27 +57,39 @@ impl DebugVars {
     }
 
     pub fn assign_field(&mut self, var_id: u32, indexes: Vec<u32>, values: &[Value]) {
-        let mut cursor: &mut PrintableValue = self.id_to_value.get_mut(&var_id)
+        let mut cursor: &mut PrintableValue = self
+            .id_to_value
+            .get_mut(&var_id)
             .expect(&format!["value unavailable for var_id {var_id}"]);
-        let cursor_type_id = self.id_to_type.get(&var_id)
+        let cursor_type_id = self
+            .id_to_type
+            .get(&var_id)
             .expect(&format!["type id unavailable for var_id {var_id}"]);
-        let mut cursor_type = self.types.get(cursor_type_id)
+        let mut cursor_type = self
+            .types
+            .get(cursor_type_id)
             .expect(&format!["type unavailable for type id {cursor_type_id}"]);
         for index in indexes.iter() {
-            (cursor, cursor_type) = match (cursor,cursor_type) {
+            (cursor, cursor_type) = match (cursor, cursor_type) {
                 (PrintableValue::Vec(array), PrintableType::Array { length, typ }) => {
-                    if *index as u64 >= *length { panic!("unexpected field index past array length") }
-                    if *length != array.len() as u64 { panic!("type/array length mismatch") }
+                    if *index as u64 >= *length {
+                        panic!("unexpected field index past array length")
+                    }
+                    if *length != array.len() as u64 {
+                        panic!("type/array length mismatch")
+                    }
                     (array.get_mut(*index as usize).unwrap(), &*Box::leak(typ.clone()))
-                },
+                }
                 (PrintableValue::Struct(field_map), PrintableType::Struct { name: _, fields }) => {
-                    if *index as usize >= fields.len() { panic!("unexpected field index past struct field length") }
-                    let (key,typ) = fields.get(*index as usize).unwrap();
+                    if *index as usize >= fields.len() {
+                        panic!("unexpected field index past struct field length")
+                    }
+                    let (key, typ) = fields.get(*index as usize).unwrap();
                     (field_map.get_mut(key).unwrap(), typ)
-                },
+                }
                 _ => {
                     panic!("unexpected assign field of {cursor_type:?} type");
-                },
+                }
             };
         }
         assign_values(cursor, values);
@@ -109,22 +121,19 @@ fn create_value(ptype: &PrintableType, values: &[Value]) -> PrintableValue {
                 panic!["unexpected number of values ({}) for field", values.len()];
             }
             PrintableValue::Field(values[0].to_field())
-        },
+        }
         PrintableType::Array { length, typ } => {
             if values.len() as u64 != *length {
                 panic!["array type length ({}) != value length ({})", length, values.len()];
             }
-            PrintableValue::Vec(values.iter()
-                .map(|v| create_value(typ, &[*v]))
-                .collect()
-            )
-        },
+            PrintableValue::Vec(values.iter().map(|v| create_value(typ, &[*v])).collect())
+        }
         PrintableType::Struct { name: _name, fields: _fields } => {
             unimplemented![]
-        },
+        }
         PrintableType::String { length: _length } => {
             unimplemented![]
-        },
+        }
     }
 }
 
