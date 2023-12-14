@@ -111,6 +111,7 @@ impl DebugState {
                         kind: ast::ExpressionKind::Variable(ast::Path {
                             segments: vec![ident("__debug_expr")],
                             kind: PathKind::Plain,
+                            span: none_span(),
                         }),
                         span: none_span(),
                     }),
@@ -149,6 +150,7 @@ impl DebugState {
                 kind: ast::ExpressionKind::Variable(ast::Path {
                     segments: vec![ident("__debug_var_assign")],
                     kind: PathKind::Plain,
+                    span: none_span(),
                 }),
                 span: none_span(),
             }),
@@ -166,6 +168,7 @@ impl DebugState {
                 kind: ast::ExpressionKind::Variable(ast::Path {
                     segments: vec![ident("__debug_var_drop")],
                     kind: PathKind::Plain,
+                    span: none_span(),
                 }),
                 span: none_span(),
             }),
@@ -210,6 +213,7 @@ impl DebugState {
                 kind: ast::ExpressionKind::Variable(ast::Path {
                     segments: vec![ident("__debug_member_assign_placeholder")],
                     kind: PathKind::Plain,
+                    span: none_span(),
                 }),
                 span: none_span(),
             }),
@@ -563,6 +567,7 @@ fn id_expr(id: &ast::Ident) -> ast::Expression {
         kind: ast::ExpressionKind::Variable(Path {
             segments: vec![id.clone()],
             kind: PathKind::Plain,
+            span: none_span(),
         }),
         span: none_span(),
     }
@@ -570,7 +575,7 @@ fn id_expr(id: &ast::Ident) -> ast::Expression {
 
 fn int_expr(x: u128) -> ast::Expression {
     ast::Expression {
-        kind: ast::ExpressionKind::Literal(ast::Literal::Integer(x.into())),
+        kind: ast::ExpressionKind::Literal(ast::Literal::Integer(x.into(), false)),
         span: none_span(),
     }
 }
@@ -598,6 +603,7 @@ fn vec_from_slice(slice_expr: &ast::Expression) -> ast::Expression {
                 kind: ast::ExpressionKind::Variable(ast::Path {
                     segments: vec![ident("__debug_Vec"), ident("from_slice")],
                     kind: PathKind::Plain,
+                    span: none_span(),
                 }),
                 span: none_span(),
             }),

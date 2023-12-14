@@ -249,7 +249,6 @@ fn save_program(
     circuit_dir: &Path,
     only_acir_opt: bool,
 ) {
-    let debug_artifact = DebugArtifact::from_program(&program);
     let preprocessed_program = PreprocessedProgram {
         hash: program.hash,
         backend: String::from(BACKEND_IDENTIFIER),

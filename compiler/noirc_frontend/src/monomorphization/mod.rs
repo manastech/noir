@@ -922,7 +922,6 @@ impl<'interner> Monomorphizer<'interner> {
                 }
             }
         }
-        let func: Box<ast::Expression>;
         let return_type = self.interner.id_type(id);
         let return_type = self.convert_type(&return_type);
 
