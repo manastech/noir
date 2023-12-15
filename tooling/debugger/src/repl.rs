@@ -119,9 +119,6 @@ impl<'a, B: BlackBoxFunctionSolver> ReplDebugger<'a, B> {
     fn show_source_code_location(&self, location: &OpcodeLocation) {
         let locations = self.context.get_source_location_for_opcode_location(location);
         for loc in locations {
-            if loc.span.start() == loc.span.end() {
-                continue;
-            }
             self.print_location_path(loc);
 
             let loc_line_index = self.debug_artifact.location_line_index(loc).unwrap();

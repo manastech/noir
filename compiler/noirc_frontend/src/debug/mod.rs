@@ -79,6 +79,10 @@ impl DebugState {
     // Modify a vector of statements in-place, adding instrumentation for sets and drops.
     // This function will consume a scope level.
     fn walk_scope(&mut self, statements: &mut Vec<ast::Statement>) {
+        let end_span = statements
+            .last()
+            .map_or(none_span(), |statement| Span::empty(statement.span.end() + 1));
+
         statements.iter_mut().for_each(|stmt| self.walk_statement(stmt));
 
         let (ret_stmt, fn_body) =
@@ -113,7 +117,7 @@ impl DebugState {
                 .pop()
                 .unwrap_or(HashMap::default())
                 .values()
-                .map(|var_id| self.wrap_drop_var(*var_id))
+                .map(|var_id| self.wrap_drop_var(*var_id, end_span))
                 .collect(),
             // return the __debug_expr value:
             vec![match &ret_stmt.kind {
@@ -170,22 +174,19 @@ impl DebugState {
         ast::Statement { kind: ast::StatementKind::Semi(ast::Expression { kind, span }), span }
     }
 
-    fn wrap_drop_var(&mut self, var_id: u32) -> ast::Statement {
+    fn wrap_drop_var(&mut self, var_id: u32, span: Span) -> ast::Statement {
         let kind = ast::ExpressionKind::Call(Box::new(ast::CallExpression {
             func: Box::new(ast::Expression {
                 kind: ast::ExpressionKind::Variable(ast::Path {
-                    segments: vec![ident("__debug_var_drop", none_span())],
+                    segments: vec![ident("__debug_var_drop", span)],
                     kind: PathKind::Plain,
-                    span: none_span(),
+                    span,
                 }),
-                span: none_span(),
+                span,
             }),
-            arguments: vec![uint_expr(var_id as u128, none_span())],
+            arguments: vec![uint_expr(var_id as u128, span)],
         }));
-        ast::Statement {
-            kind: ast::StatementKind::Semi(ast::Expression { kind, span: none_span() }),
-            span: none_span(),
-        }
+        ast::Statement { kind: ast::StatementKind::Semi(ast::Expression { kind, span }), span }
     }
 
     fn wrap_assign_member(
@@ -431,7 +432,7 @@ impl DebugState {
         let var_id = self.insert_var(var_name);
 
         let set_stmt = self.wrap_assign_var(var_id, id_expr(&for_stmt.identifier));
-        let drop_stmt = self.wrap_drop_var(var_id);
+        let drop_stmt = self.wrap_drop_var(var_id, Span::empty(for_stmt.span.end() + 1));
 
         self.walk_expr(&mut for_stmt.block);
         for_stmt.block = ast::Expression {
