@@ -118,7 +118,16 @@ impl<'a, B: BlackBoxFunctionSolver> DebugContext<'a, B> {
     pub(super) fn get_current_source_location(&self) -> Option<Vec<Location>> {
         self.get_current_opcode_location()
             .as_ref()
-            .and_then(|location| self.debug_artifact.debug_symbols[0].opcode_location(location))
+            .map(|opcode_location| self.get_source_location_for_opcode_location(opcode_location))
+            .filter(|v: &Vec<Location>| !v.is_empty())
+    }
+
+    pub(super) fn get_source_location_for_opcode_location(
+        &self,
+        opcode_location: &OpcodeLocation,
+    ) -> Vec<Location> {
+        self.debug_artifact.debug_symbols[0]
+            .opcode_location(opcode_location)
             .map(|source_locations| {
                 source_locations
                     .into_iter()
@@ -127,7 +136,7 @@ impl<'a, B: BlackBoxFunctionSolver> DebugContext<'a, B> {
                     })
                     .collect()
             })
-            .filter(|v: &Vec<Location>| !v.is_empty())
+            .unwrap_or(vec![])
     }
 
     fn get_opcodes_sizes(&self) -> Vec<usize> {

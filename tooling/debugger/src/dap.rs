@@ -212,37 +212,46 @@ impl<'a, R: Read, W: Write, B: BlackBoxFunctionSolver> DapSession<'a, R, W, B> {
         Ok(())
     }
 
+    fn build_stack_trace(&self) -> Vec<StackFrame> {
+        self.context
+            .get_call_stack()
+            .into_iter()
+            .flat_map(|opcode_location| {
+                self.context
+                    .get_source_location_for_opcode_location(&opcode_location)
+                    .into_iter()
+                    .map(move |source_location| (opcode_location, source_location))
+            })
+            .enumerate()
+            .map(|(index, (opcode_location, source_location))| {
+                let line_number =
+                    self.debug_artifact.location_line_number(source_location).unwrap();
+                let column_number =
+                    self.debug_artifact.location_column_number(source_location).unwrap();
+                StackFrame {
+                    id: index as i64,
+                    name: format!("frame #{index}"),
+                    source: Some(Source {
+                        path: self.debug_artifact.file_map[&source_location.file]
+                            .path
+                            .to_str()
+                            .map(String::from),
+                        ..Source::default()
+                    }),
+                    line: line_number as i64,
+                    column: column_number as i64,
+                    instruction_pointer_reference: Some(opcode_location.to_string()),
+                    ..StackFrame::default()
+                }
+            })
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect()
+    }
+
     fn handle_stack_trace(&mut self, req: Request) -> Result<(), ServerError> {
-        let opcode_location = self.context.get_current_opcode_location();
-        let source_location = self.context.get_current_source_location();
-        let frames = match source_location {
-            None => vec![],
-            Some(locations) => locations
-                .iter()
-                .enumerate()
-                .map(|(index, location)| {
-                    let line_number = self.debug_artifact.location_line_number(*location).unwrap();
-                    let column_number =
-                        self.debug_artifact.location_column_number(*location).unwrap();
-                    let ip_reference = opcode_location.map(|location| location.to_string());
-                    StackFrame {
-                        id: index as i64,
-                        name: format!("frame #{index}"),
-                        source: Some(Source {
-                            path: self.debug_artifact.file_map[&location.file]
-                                .path
-                                .to_str()
-                                .map(String::from),
-                            ..Source::default()
-                        }),
-                        line: line_number as i64,
-                        column: column_number as i64,
-                        instruction_pointer_reference: ip_reference,
-                        ..StackFrame::default()
-                    }
-                })
-                .collect(),
-        };
+        let frames = self.build_stack_trace();
         let total_frames = Some(frames.len() as i64);
         self.server.respond(req.success(ResponseBody::StackTrace(StackTraceResponse {
             stack_frames: frames,

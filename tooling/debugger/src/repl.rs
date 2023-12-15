@@ -117,20 +117,16 @@ impl<'a, B: BlackBoxFunctionSolver> ReplDebugger<'a, B> {
     }
 
     fn show_source_code_location(&self, location: &OpcodeLocation) {
-        let locations = self.debug_artifact.debug_symbols[0].opcode_location(location);
-        let Some(locations) = locations else { return };
+        let locations = self.context.get_source_location_for_opcode_location(location);
         for loc in locations {
-            if loc.span.start() == loc.span.end()
-                || self.context.is_source_location_in_debug_module(&loc)
-            {
+            if loc.span.start() == loc.span.end() {
                 continue;
             }
             self.print_location_path(loc);
 
             let loc_line_index = self.debug_artifact.location_line_index(loc).unwrap();
 
-            // How many lines before or after the location's line we
-            // print
+            // How many lines before or after the location's line we print
             let context_lines = 5;
 
             let first_line_to_print =
@@ -152,8 +148,8 @@ impl<'a, B: BlackBoxFunctionSolver> ReplDebugger<'a, B> {
                 }
 
                 if current_line_index > last_line_to_print {
-                    // Denote that there's more lines after but we're not showing them,
-                    // and stop printing
+                    // Denote that there's more lines after but we're not
+                    // showing them, and stop printing
                     print_line_of_ellipsis(current_line_number);
                     break;
                 }
