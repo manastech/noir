@@ -397,7 +397,8 @@ impl<'a, B: BlackBoxFunctionSolver> DebugContext<'a, B> {
         }
     }
 
-    pub(super) fn next(&mut self) -> DebugCommandResult {
+    /// Steps debugging execution until the next source location
+    pub(super) fn next_into(&mut self) -> DebugCommandResult {
         let start_location = self.get_current_source_location();
         loop {
             let result = self.step_into_opcode();
@@ -406,6 +407,38 @@ impl<'a, B: BlackBoxFunctionSolver> DebugContext<'a, B> {
             }
             let new_location = self.get_current_source_location();
             if new_location.is_some() && new_location != start_location {
+                return DebugCommandResult::Ok;
+            }
+        }
+    }
+
+    /// Steps debugging execution until the next source location at the same (or
+    /// less) call stack depth (eg. don't dive into function calls)
+    pub(super) fn next_over(&mut self) -> DebugCommandResult {
+        let start_call_stack = self.get_source_call_stack();
+        loop {
+            let result = self.next_into();
+            if !matches!(result, DebugCommandResult::Ok) {
+                return result;
+            }
+            let new_call_stack = self.get_source_call_stack();
+            if new_call_stack.len() <= start_call_stack.len() {
+                return DebugCommandResult::Ok;
+            }
+        }
+    }
+
+    /// Steps debugging execution until the next source location with a smaller
+    /// call stack depth (eg. returning from the current function)
+    pub(super) fn next_out(&mut self) -> DebugCommandResult {
+        let start_call_stack = self.get_source_call_stack();
+        loop {
+            let result = self.next_into();
+            if !matches!(result, DebugCommandResult::Ok) {
+                return result;
+            }
+            let new_call_stack = self.get_source_call_stack();
+            if new_call_stack.len() < start_call_stack.len() {
                 return DebugCommandResult::Ok;
             }
         }
