@@ -176,7 +176,7 @@ impl<'a, R: Read, W: Write, B: BlackBoxFunctionSolver> DapSession<'a, R, W, B> {
                         args.granularity.as_ref().unwrap_or(&SteppingGranularity::Statement);
                     match granularity {
                         SteppingGranularity::Instruction => self.handle_step(req)?,
-                        _ => self.handle_next(req)?,
+                        _ => self.handle_next_into(req)?,
                     }
                 }
                 Command::StepOut(ref args) => {
@@ -184,7 +184,7 @@ impl<'a, R: Read, W: Write, B: BlackBoxFunctionSolver> DapSession<'a, R, W, B> {
                         args.granularity.as_ref().unwrap_or(&SteppingGranularity::Statement);
                     match granularity {
                         SteppingGranularity::Instruction => self.handle_step(req)?,
-                        _ => self.handle_next(req)?,
+                        _ => self.handle_next_out(req)?,
                     }
                 }
                 Command::Next(ref args) => {
@@ -192,7 +192,7 @@ impl<'a, R: Read, W: Write, B: BlackBoxFunctionSolver> DapSession<'a, R, W, B> {
                         args.granularity.as_ref().unwrap_or(&SteppingGranularity::Statement);
                     match granularity {
                         SteppingGranularity::Instruction => self.handle_step(req)?,
-                        _ => self.handle_next(req)?,
+                        _ => self.handle_next_over(req)?,
                     }
                 }
                 Command::Continue(_) => {
@@ -317,9 +317,23 @@ impl<'a, R: Read, W: Write, B: BlackBoxFunctionSolver> DapSession<'a, R, W, B> {
         self.handle_execution_result(result)
     }
 
-    fn handle_next(&mut self, req: Request) -> Result<(), ServerError> {
+    fn handle_next_into(&mut self, req: Request) -> Result<(), ServerError> {
         let result = self.context.next_into();
-        eprintln!("INFO: stepped by statement with result {result:?}");
+        eprintln!("INFO: stepped into by statement with result {result:?}");
+        self.server.respond(req.ack()?)?;
+        self.handle_execution_result(result)
+    }
+
+    fn handle_next_out(&mut self, req: Request) -> Result<(), ServerError> {
+        let result = self.context.next_out();
+        eprintln!("INFO: stepped out by statement with result {result:?}");
+        self.server.respond(req.ack()?)?;
+        self.handle_execution_result(result)
+    }
+
+    fn handle_next_over(&mut self, req: Request) -> Result<(), ServerError> {
+        let result = self.context.next_over();
+        eprintln!("INFO: stepped over by statement with result {result:?}");
         self.server.respond(req.ack()?)?;
         self.handle_execution_result(result)
     }
