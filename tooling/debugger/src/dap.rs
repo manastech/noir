@@ -214,20 +214,14 @@ impl<'a, R: Read, W: Write, B: BlackBoxFunctionSolver> DapSession<'a, R, W, B> {
 
     fn build_stack_trace(&self) -> Vec<StackFrame> {
         self.context
-            .get_call_stack()
-            .into_iter()
-            .flat_map(|opcode_location| {
-                self.context
-                    .get_source_location_for_opcode_location(&opcode_location)
-                    .into_iter()
-                    .map(move |source_location| (opcode_location, source_location))
-            })
+            .get_source_call_stack()
+            .iter()
             .enumerate()
             .map(|(index, (opcode_location, source_location))| {
                 let line_number =
-                    self.debug_artifact.location_line_number(source_location).unwrap();
+                    self.debug_artifact.location_line_number(*source_location).unwrap();
                 let column_number =
-                    self.debug_artifact.location_column_number(source_location).unwrap();
+                    self.debug_artifact.location_column_number(*source_location).unwrap();
                 StackFrame {
                     id: index as i64,
                     name: format!("frame #{index}"),

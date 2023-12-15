@@ -122,6 +122,12 @@ impl<'a, B: BlackBoxFunctionSolver> DebugContext<'a, B> {
             .filter(|v: &Vec<Location>| !v.is_empty())
     }
 
+    /// Returns the (possible) stack of source locations corresponding to the
+    /// given opcode location. Due to compiler inlining it's possible for this
+    /// function to return multiple source locations. An empty vector means that
+    /// the given opcode location cannot be mapped back to a source location
+    /// (eg. it may be pure debug instrumentation code or other synthetically
+    /// produced opcode by the compiler)
     pub(super) fn get_source_location_for_opcode_location(
         &self,
         opcode_location: &OpcodeLocation,
@@ -137,6 +143,21 @@ impl<'a, B: BlackBoxFunctionSolver> DebugContext<'a, B> {
                     .collect()
             })
             .unwrap_or(vec![])
+    }
+
+    /// Returns the current call stack with expanded source locations. In
+    /// general, the matching between opcode location and source location is 1
+    /// to 1, but due to the compiler inlining functions a single opcode
+    /// location may expand to multiple source locations.
+    pub(super) fn get_source_call_stack(&self) -> Vec<(OpcodeLocation, Location)> {
+        self.get_call_stack()
+            .iter()
+            .flat_map(|opcode_location| {
+                self.get_source_location_for_opcode_location(opcode_location)
+                    .into_iter()
+                    .map(|source_location| (*opcode_location, source_location))
+            })
+            .collect()
     }
 
     fn get_opcodes_sizes(&self) -> Vec<usize> {
