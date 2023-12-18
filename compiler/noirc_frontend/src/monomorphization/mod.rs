@@ -1600,7 +1600,7 @@ fn get_field(ptype: &PrintableType, field_name: &str) -> Option<usize> {
         PrintableType::Tuple { .. } | PrintableType::Array { .. } => {
             field_name.parse::<usize>().ok()
         }
-        _ => None,
+        _ => None
     }
 }
 

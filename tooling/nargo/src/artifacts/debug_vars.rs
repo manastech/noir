@@ -1,5 +1,5 @@
 use acvm::brillig_vm::brillig::Value;
-use noirc_printable_type::{PrintableType, PrintableValue};
+use noirc_printable_type::{PrintableType,PrintableValue,decode_value};
 use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Default, Clone)]
@@ -50,8 +50,8 @@ impl DebugVars {
         self.active.insert(var_id);
         // TODO: assign values as PrintableValue
         let type_id = self.id_to_type.get(&var_id).unwrap();
-        let ptype = self.types.get(type_id).unwrap();
-        self.id_to_value.insert(var_id, create_value(ptype, values));
+        let ptype = self.types.get(&type_id).unwrap();
+        self.id_to_value.insert(var_id, decode_value(&mut values.iter().map(|v| v.to_field()), ptype));
     }
 
     pub fn assign_field(&mut self, var_id: u32, indexes: Vec<u32>, values: &[Value]) {
@@ -70,11 +70,9 @@ impl DebugVars {
         for index in indexes.iter() {
             (cursor, cursor_type) = match (cursor, cursor_type) {
                 (PrintableValue::Vec(array), PrintableType::Array { length, typ }) => {
-                    if *index as u64 >= *length {
-                        panic!("unexpected field index past array length")
-                    }
-                    if *length != array.len() as u64 {
-                        panic!("type/array length mismatch")
+                    if let Some(len) = length {
+                        if *index as u64 >= *len { panic!("unexpected field index past array length") }
+                        if *len != array.len() as u64 { panic!("type/array length mismatch") }
                     }
                     (array.get_mut(*index as usize).unwrap(), &*Box::leak(typ.clone()))
                 }
@@ -106,7 +104,7 @@ impl DebugVars {
                 }
             };
         }
-        *cursor = create_value(cursor_type, values);
+        *cursor = decode_value(&mut values.iter().map(|v| v.to_field()), cursor_type);
         self.active.insert(var_id);
     }
 
@@ -121,44 +119,5 @@ impl DebugVars {
 
     pub fn drop(&mut self, var_id: u32) {
         self.active.remove(&var_id);
-    }
-}
-
-// TODO: put this in a From or Into impl
-fn create_value(ptype: &PrintableType, values: &[Value]) -> PrintableValue {
-    match ptype {
-        PrintableType::Field
-        | PrintableType::SignedInteger { .. }
-        | PrintableType::UnsignedInteger { .. }
-        | PrintableType::Boolean => {
-            if values.len() != 1 {
-                panic!["unexpected number of values ({}) for field", values.len()];
-            }
-            PrintableValue::Field(values[0].to_field())
-        }
-        PrintableType::Array { length, typ } => {
-            if values.len() as u64 != *length {
-                panic!["array type length ({}) != value length ({})", length, values.len()];
-            }
-            PrintableValue::Vec(values.iter().map(|v| create_value(typ, &[*v])).collect())
-        }
-        PrintableType::Tuple { types } => {
-            let default_value = 0u128.into();
-            let padded_values = values.iter().chain(std::iter::repeat(&default_value));
-            PrintableValue::Vec(
-                types.iter().zip(padded_values).map(|(typ, v)| create_value(typ, &[*v])).collect(),
-            )
-        }
-        PrintableType::Struct { name: _name, fields } => PrintableValue::Struct(
-            fields
-                .iter()
-                .zip(values.iter())
-                .map(|((key, stype), v)| (key.clone(), create_value(stype, &[*v])))
-                .collect(),
-        ),
-        PrintableType::String { length: _length } => PrintableValue::String(
-            String::from_utf8(values.iter().map(|v| v.to_field().to_u128() as u8).collect())
-                .expect("string utf8 decode failed"),
-        ),
     }
 }

@@ -197,7 +197,7 @@ impl DebugState {
     ) -> ast::Statement {
         let index_expr = ast::Expression {
             kind: ast::ExpressionKind::Literal(ast::Literal::Array(ast::ArrayLiteral::Standard(
-                indexes.to_vec(),
+                indexes.iter().rev().cloned().collect()
             ))),
             span: none_span(),
         };
