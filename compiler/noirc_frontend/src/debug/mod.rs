@@ -240,10 +240,7 @@ impl DebugState {
             .iter()
             .map(|(id, is_mut)| {
                 if *is_mut {
-                    ast::Pattern::Mutable(
-                        Box::new(ast::Pattern::Identifier(id.clone())),
-                        id.span(),
-                    )
+                    ast::Pattern::Mutable(Box::new(ast::Pattern::Identifier(id.clone())), id.span())
                 } else {
                     ast::Pattern::Identifier(id.clone())
                 }
@@ -251,10 +248,8 @@ impl DebugState {
             .collect();
         let vars_exprs: Vec<ast::Expression> = vars.iter().map(|(id, _)| id_expr(id)).collect();
 
-        let mut block_stmts = vec![ast::Statement {
-            kind: ast::StatementKind::Let(let_stmt.clone()),
-            span: *span,
-        }];
+        let mut block_stmts =
+            vec![ast::Statement { kind: ast::StatementKind::Let(let_stmt.clone()), span: *span }];
         block_stmts.extend(vars.iter().map(|(id, _)| {
             let var_id = self.insert_var(&id.0.contents);
             self.wrap_assign_var(var_id, id_expr(id))
@@ -346,7 +341,8 @@ impl DebugState {
                 )
             }
         };
-        let ret_kind = ast::StatementKind::Expression(id_expr(&ident("__debug_expr", expression_span)));
+        let ret_kind =
+            ast::StatementKind::Expression(id_expr(&ident("__debug_expr", expression_span)));
 
         ast::Statement {
             kind: ast::StatementKind::Assign(ast::AssignStatement {
