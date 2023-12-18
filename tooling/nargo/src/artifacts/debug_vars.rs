@@ -1,5 +1,5 @@
 use acvm::brillig_vm::brillig::Value;
-use noirc_printable_type::{PrintableType,PrintableValue,decode_value};
+use noirc_printable_type::{decode_value, PrintableType, PrintableValue};
 use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Default, Clone)]
@@ -50,8 +50,9 @@ impl DebugVars {
         self.active.insert(var_id);
         // TODO: assign values as PrintableValue
         let type_id = self.id_to_type.get(&var_id).unwrap();
-        let ptype = self.types.get(&type_id).unwrap();
-        self.id_to_value.insert(var_id, decode_value(&mut values.iter().map(|v| v.to_field()), ptype));
+        let ptype = self.types.get(type_id).unwrap();
+        self.id_to_value
+            .insert(var_id, decode_value(&mut values.iter().map(|v| v.to_field()), ptype));
     }
 
     pub fn assign_field(&mut self, var_id: u32, indexes: Vec<u32>, values: &[Value]) {
@@ -71,8 +72,12 @@ impl DebugVars {
             (cursor, cursor_type) = match (cursor, cursor_type) {
                 (PrintableValue::Vec(array), PrintableType::Array { length, typ }) => {
                     if let Some(len) = length {
-                        if *index as u64 >= *len { panic!("unexpected field index past array length") }
-                        if *len != array.len() as u64 { panic!("type/array length mismatch") }
+                        if *index as u64 >= *len {
+                            panic!("unexpected field index past array length")
+                        }
+                        if *len != array.len() as u64 {
+                            panic!("type/array length mismatch")
+                        }
                     }
                     (array.get_mut(*index as usize).unwrap(), &*Box::leak(typ.clone()))
                 }

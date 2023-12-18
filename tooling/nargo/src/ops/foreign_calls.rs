@@ -145,7 +145,8 @@ impl DefaultForeignCallExecutor {
                 if let (Some(ds), ForeignCallParam::Single(var_id_value)) = (debug_vars, fcp_var_id)
                 {
                     let var_id = var_id_value.to_u128() as u32;
-                    let values: Vec<Value> = foreign_call.inputs[1..].iter().flat_map(|x| x.values()).collect();
+                    let values: Vec<Value> =
+                        foreign_call.inputs[1..].iter().flat_map(|x| x.values()).collect();
                     ds.assign(var_id, &values);
                 }
                 Ok(ForeignCallResult { values: vec![] })
