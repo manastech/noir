@@ -1,7 +1,6 @@
 use acvm::brillig_vm::brillig::Value;
 use noirc_printable_type::{PrintableType,PrintableValue,decode_value};
 use std::collections::{HashMap, HashSet};
-use acvm::FieldElement;
 
 #[derive(Debug, Default, Clone)]
 pub struct DebugVars {
