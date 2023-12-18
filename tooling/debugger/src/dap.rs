@@ -4,6 +4,7 @@ use std::str::FromStr;
 
 use acvm::acir::circuit::{Circuit, OpcodeLocation};
 use acvm::acir::native_types::WitnessMap;
+use acvm::brillig_vm::Registers;
 use acvm::BlackBoxFunctionSolver;
 use codespan_reporting::files::{Files, SimpleFile};
 
@@ -39,6 +40,24 @@ pub struct DapSession<'a, R: Read, W: Write, B: BlackBoxFunctionSolver> {
     next_breakpoint_id: i64,
     instruction_breakpoints: Vec<(OpcodeLocation, i64)>,
     source_breakpoints: BTreeMap<FileId, Vec<(OpcodeLocation, i64)>>,
+}
+
+enum ScopeReferences {
+    Locals = 1,
+    WitnessMap = 2,
+    BrilligRegisters = 3,
+    InvalidScope = 0,
+}
+
+impl From<i64> for ScopeReferences {
+    fn from(value: i64) -> Self {
+        match value {
+            1 => Self::Locals,
+            2 => Self::WitnessMap,
+            3 => Self::BrilligRegisters,
+            _ => Self::InvalidScope,
+        }
+    }
 }
 
 // BTreeMap<FileId, Vec<(usize, OpcodeLocation)>
@@ -567,27 +586,31 @@ impl<'a, R: Read, W: Write, B: BlackBoxFunctionSolver> DapSession<'a, R, W, B> {
 
     fn handle_scopes(&mut self, req: Request) -> Result<(), ServerError> {
         self.server.respond(req.success(ResponseBody::Scopes(ScopesResponse {
-            scopes: vec![Scope {
-                name: String::from("Locals"),
-                variables_reference: 1,
-                ..Scope::default()
-            }],
+            scopes: vec![
+                Scope {
+                    name: String::from("Locals"),
+                    variables_reference: ScopeReferences::Locals as i64,
+                    ..Scope::default()
+                },
+                Scope {
+                    name: String::from("Witness Map"),
+                    variables_reference: ScopeReferences::WitnessMap as i64,
+                    ..Scope::default()
+                },
+                Scope {
+                    name: String::from("Brillig Registers"),
+                    variables_reference: ScopeReferences::BrilligRegisters as i64,
+                    ..Scope::default()
+                },
+            ],
         })))?;
         Ok(())
     }
 
-    fn handle_variables(&mut self, req: Request) -> Result<(), ServerError> {
-        let Command::Variables(ref args) = req.command else {
-            unreachable!("handle_variables called on a different request");
-        };
-        if args.variables_reference != 1 {
-            eprintln!(
-                "handle_variables with an unknown variables_reference {}",
-                args.variables_reference
-            );
-        }
-        let vars = self.context.get_variables();
-        let mut variables: Vec<_> = vars
+    fn build_local_variables(&self) -> Vec<Variable> {
+        let mut variables: Vec<_> = self
+            .context
+            .get_variables()
             .iter()
             .map(|(name, value, _var_type)| Variable {
                 name: String::from(*name),
@@ -596,6 +619,54 @@ impl<'a, R: Read, W: Write, B: BlackBoxFunctionSolver> DapSession<'a, R, W, B> {
             })
             .collect();
         variables.sort_by(|a, b| a.name.partial_cmp(&b.name).unwrap());
+        variables
+    }
+
+    fn build_witness_map(&self) -> Vec<Variable> {
+        self.context
+            .get_witness_map()
+            .clone()
+            .into_iter()
+            .map(|(witness, value)| Variable {
+                name: format!("_{}", witness.witness_index()),
+                value: format!("{value:?}"),
+                ..Variable::default()
+            })
+            .collect()
+    }
+
+    fn build_brillig_registers(&self) -> Vec<Variable> {
+        self.context
+            .get_brillig_registers()
+            .unwrap_or(&Registers { inner: vec![] })
+            .inner
+            .iter()
+            .enumerate()
+            .map(|(index, value)| Variable {
+                name: format!("R{index}"),
+                value: format!("{value:?}"),
+                ..Variable::default()
+            })
+            .collect()
+    }
+
+    fn handle_variables(&mut self, req: Request) -> Result<(), ServerError> {
+        let Command::Variables(ref args) = req.command else {
+            unreachable!("handle_variables called on a different request");
+        };
+        let scope: ScopeReferences = args.variables_reference.into();
+        let variables: Vec<_> = match scope {
+            ScopeReferences::Locals => self.build_local_variables(),
+            ScopeReferences::WitnessMap => self.build_witness_map(),
+            ScopeReferences::BrilligRegisters => self.build_brillig_registers(),
+            _ => {
+                eprintln!(
+                    "handle_variables with an unknown variables_reference {}",
+                    args.variables_reference
+                );
+                vec![]
+            }
+        };
         self.server
             .respond(req.success(ResponseBody::Variables(VariablesResponse { variables })))?;
         Ok(())
