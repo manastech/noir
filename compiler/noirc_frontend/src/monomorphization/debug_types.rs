@@ -24,18 +24,16 @@ impl DebugTypes {
         self.variables.insert(var_id, (var_name.to_string(), type_id));
     }
 
-    pub fn get_type<'a>(&'a self, var_id: u32) -> Option<&'a PrintableType> {
-        self.variables.get(&var_id).and_then(|(_,type_id)| {
-            self.id_to_type.get(&type_id)
-        })
+    pub fn get_type(&self, var_id: u32) -> Option<&PrintableType> {
+        self.variables.get(&var_id).and_then(|(_, type_id)| self.id_to_type.get(type_id))
     }
 }
 
-impl Into<VariableTypes> for DebugTypes {
-    fn into(self) -> VariableTypes {
+impl From<DebugTypes> for VariableTypes {
+    fn from(val: DebugTypes) -> Self {
         (
-            self.variables.into_iter().collect(),
-            self.types.into_iter().map(|(ptype, type_id)| (type_id, ptype)).collect(),
+            val.variables.into_iter().collect(),
+            val.types.into_iter().map(|(ptype, type_id)| (type_id, ptype)).collect(),
         )
     }
 }

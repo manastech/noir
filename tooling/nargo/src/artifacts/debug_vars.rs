@@ -1,6 +1,7 @@
-use noirc_printable_type::{PrintableType,PrintableValue,decode_value};
 use acvm::brillig_vm::brillig::Value;
+use noirc_printable_type::{PrintableType,PrintableValue,decode_value};
 use std::collections::{HashMap, HashSet};
+use acvm::FieldElement;
 
 #[derive(Debug, Default, Clone)]
 pub struct DebugVars {
@@ -13,12 +14,10 @@ pub struct DebugVars {
 
 impl DebugVars {
     pub fn new(vars: &HashMap<u32, String>) -> Self {
-        let mut debug_vars = Self::default();
-        debug_vars.id_to_name = vars.clone();
-        debug_vars
+        Self { id_to_name: vars.clone(), ..Self::default() }
     }
 
-    pub fn get_variables<'a>(&'a self) -> Vec<(&'a str, &'a PrintableValue, &'a PrintableType)> {
+    pub fn get_variables(&self) -> Vec<(&str, &PrintableValue, &PrintableType)> {
         self.active
             .iter()
             .filter_map(|var_id| {
@@ -57,37 +56,53 @@ impl DebugVars {
     }
 
     pub fn assign_field(&mut self, var_id: u32, indexes: Vec<u32>, values: &[Value]) {
-        let mut cursor: &mut PrintableValue = self.id_to_value.get_mut(&var_id)
-            .expect(&format!["value unavailable for var_id {var_id}"]);
-        let cursor_type_id = self.id_to_type.get(&var_id)
-            .expect(&format!["type id unavailable for var_id {var_id}"]);
-        let mut cursor_type = self.types.get(cursor_type_id)
-            .expect(&format!["type unavailable for type id {cursor_type_id}"]);
+        let mut cursor: &mut PrintableValue = self
+            .id_to_value
+            .get_mut(&var_id)
+            .unwrap_or_else(|| panic!("value unavailable for var_id {var_id}"));
+        let cursor_type_id = self
+            .id_to_type
+            .get(&var_id)
+            .unwrap_or_else(|| panic!("type id unavailable for var_id {var_id}"));
+        let mut cursor_type = self
+            .types
+            .get(cursor_type_id)
+            .unwrap_or_else(|| panic!("type unavailable for type id {cursor_type_id}"));
         for index in indexes.iter() {
-            (cursor, cursor_type) = match (cursor,cursor_type) {
+            (cursor, cursor_type) = match (cursor, cursor_type) {
                 (PrintableValue::Vec(array), PrintableType::Array { length, typ }) => {
                     if let Some(len) = length {
                         if *index as u64 >= *len { panic!("unexpected field index past array length") }
                         if *len != array.len() as u64 { panic!("type/array length mismatch") }
                     }
                     (array.get_mut(*index as usize).unwrap(), &*Box::leak(typ.clone()))
-                },
-                (PrintableValue::Struct(field_map), PrintableType::Struct { name: _name, fields }) => {
-                    if *index as usize >= fields.len() { panic!("unexpected field index past struct field length") }
-                    let (key,typ) = fields.get(*index as usize).unwrap();
+                }
+                (
+                    PrintableValue::Struct(field_map),
+                    PrintableType::Struct { name: _name, fields },
+                ) => {
+                    if *index as usize >= fields.len() {
+                        panic!("unexpected field index past struct field length")
+                    }
+                    let (key, typ) = fields.get(*index as usize).unwrap();
                     (field_map.get_mut(key).unwrap(), typ)
-                },
+                }
                 (PrintableValue::Vec(array), PrintableType::Tuple { types }) => {
                     if *index >= types.len() as u32 {
-                        panic!("unexpected field index ({index}) past tuple length ({})", types.len());
+                        panic!(
+                            "unexpected field index ({index}) past tuple length ({})",
+                            types.len()
+                        );
                     }
-                    if types.len() != array.len() { panic!("type/array length mismatch") }
+                    if types.len() != array.len() {
+                        panic!("type/array length mismatch")
+                    }
                     let typ = types.get(*index as usize).unwrap();
                     (array.get_mut(*index as usize).unwrap(), typ)
-                },
+                }
                 _ => {
                     panic!("unexpected assign field of {cursor_type:?} type");
-                },
+                }
             };
         }
         *cursor = decode_value(&mut values.iter().map(|v| v.to_field()), cursor_type);
@@ -99,7 +114,7 @@ impl DebugVars {
         unimplemented![]
     }
 
-    pub fn get<'a>(&'a mut self, var_id: u32) -> Option<&'a PrintableValue> {
+    pub fn get(&mut self, var_id: u32) -> Option<&PrintableValue> {
         self.id_to_value.get(&var_id)
     }
 

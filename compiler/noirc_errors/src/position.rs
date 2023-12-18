@@ -65,6 +65,10 @@ impl Span {
         Span::inclusive(start, start)
     }
 
+    pub fn empty(position: u32) -> Span {
+        Span::from(position..position)
+    }
+
     #[must_use]
     pub fn merge(self, other: Span) -> Span {
         Span(self.0.merge(other.0))
@@ -82,8 +86,18 @@ impl Span {
         self.0.end().into()
     }
 
-    pub fn from_str(s: &str) -> Span {
+    pub fn build_from_str(s: &str) -> Span {
         Span(ByteSpan::from_str(s))
+    }
+
+    pub fn contains(&self, other: &Span) -> bool {
+        self.start() <= other.start() && self.end() >= other.end()
+    }
+
+    pub fn is_smaller(&self, other: &Span) -> bool {
+        let self_distance = self.end() - self.start();
+        let other_distance = other.end() - other.start();
+        self_distance < other_distance
     }
 }
 
@@ -132,5 +146,9 @@ impl Location {
 
     pub fn dummy() -> Self {
         Self { span: Span::single_char(0), file: FileId::dummy() }
+    }
+
+    pub fn contains(&self, other: &Location) -> bool {
+        self.file == other.file && self.span.contains(&other.span)
     }
 }

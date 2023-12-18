@@ -8,16 +8,19 @@ use fm::FileId;
 use iter_extended::vecmap;
 use noirc_abi::{AbiParameter, AbiType, ContractEvent};
 use noirc_errors::{CustomDiagnostic, FileDiagnostic};
+use noirc_evaluator::create_circuit;
 use noirc_evaluator::errors::RuntimeError;
-use noirc_evaluator::{create_circuit, into_abi_params};
+use noirc_frontend::debug::DEBUG_PROLOGUE_CONTENTS;
 use noirc_frontend::graph::{CrateId, CrateName};
 use noirc_frontend::hir::def_map::{Contract, CrateDefMap};
 use noirc_frontend::hir::Context;
+use noirc_frontend::macros_api::MacroProcessor;
 use noirc_frontend::monomorphization::{monomorphize, monomorphize_debug};
 use noirc_frontend::node_interner::FuncId;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
+mod abi_gen;
 mod contract;
 mod debug;
 mod program;
@@ -29,6 +32,7 @@ pub use debug::DebugFile;
 pub use program::CompiledProgram;
 
 const STD_CRATE_NAME: &str = "std";
+const DEBUG_CRATE_NAME: &str = "__debug";
 
 pub const GIT_COMMIT: &str = env!("GIT_COMMIT");
 pub const GIT_DIRTY: &str = env!("GIT_DIRTY");
@@ -63,6 +67,10 @@ pub struct CompileOptions {
     /// Insert debug symbols to inspect variables
     #[arg(long)]
     pub instrument_debug: bool,
+
+    /// Force Brillig output (for step debugging)
+    #[arg(long, hide = true)]
+    pub force_brillig: bool,
 }
 
 /// Helper type used to signify where only warnings are expected in file diagnostics
@@ -80,11 +88,19 @@ pub fn prepare_crate(context: &mut Context, file_name: &Path) -> CrateId {
     let std_file_id = context.file_manager.add_file(&path_to_std_lib_file).unwrap();
     let std_crate_id = context.crate_graph.add_stdlib(std_file_id);
 
+    let path_to_debug_lib_file = Path::new(DEBUG_CRATE_NAME).join("lib.nr");
+    let debug_file_id = context
+        .file_manager
+        .add_file_with_contents(&path_to_debug_lib_file, DEBUG_PROLOGUE_CONTENTS)
+        .unwrap();
+    let debug_crate_id = context.crate_graph.add_crate(debug_file_id);
+
     let root_file_id = context.file_manager.add_file(file_name).unwrap();
 
     let root_crate_id = context.crate_graph.add_crate_root(root_file_id);
 
     add_dep(context, root_crate_id, std_crate_id, STD_CRATE_NAME.parse().unwrap());
+    add_dep(context, root_crate_id, debug_crate_id, DEBUG_CRATE_NAME.parse().unwrap());
 
     root_crate_id
 }
@@ -124,8 +140,13 @@ pub fn check_crate(
     crate_id: CrateId,
     deny_warnings: bool,
 ) -> CompilationResult<()> {
+    #[cfg(not(feature = "aztec"))]
+    let macros: Vec<&dyn MacroProcessor> = Vec::new();
+    #[cfg(feature = "aztec")]
+    let macros = vec![&aztec_macros::AztecMacro as &dyn MacroProcessor];
+
     let mut errors = vec![];
-    let diagnostics = CrateDefMap::collect_defs(crate_id, context);
+    let diagnostics = CrateDefMap::collect_defs(crate_id, context, macros);
     errors.extend(diagnostics.into_iter().map(|(error, file_id)| {
         let diagnostic: CustomDiagnostic = error.into();
         diagnostic.in_file(file_id)
@@ -144,12 +165,7 @@ pub fn compute_function_abi(
 ) -> Option<(Vec<AbiParameter>, Option<AbiType>)> {
     let main_function = context.get_main_function(crate_id)?;
 
-    let func_meta = context.def_interner.function_meta(&main_function);
-
-    let (parameters, return_type) = func_meta.into_function_signature();
-    let parameters = into_abi_params(context, parameters);
-    let return_type = return_type.map(|typ| AbiType::from_type(context, &typ));
-    Some((parameters, return_type))
+    Some(abi_gen::compute_function_abi(context, &main_function))
 }
 
 /// Run the frontend to check the crate for errors then compile the main function if there were none
@@ -336,7 +352,11 @@ pub fn compile_no_check(
     force_compile: bool,
 ) -> Result<CompiledProgram, RuntimeError> {
     let program = if options.instrument_debug {
-        monomorphize_debug(main_function, &mut context.def_interner, &context.debug_state.field_names)
+        monomorphize_debug(
+            main_function,
+            &mut context.def_interner,
+            &context.debug_state.field_names,
+        )
     } else {
         monomorphize(main_function, &mut context.def_interner)
     };
@@ -352,10 +372,12 @@ pub fn compile_no_check(
     if !force_compile && hashes_match {
         return Ok(cached_program.expect("cache must exist for hashes to match"));
     }
+    let visibility = program.return_visibility;
+    let (circuit, debug, input_witnesses, return_witnesses, warnings) =
+        create_circuit(program, options.show_ssa, options.show_brillig, options.force_brillig)?;
 
-    let (circuit, debug, abi, warnings) =
-        create_circuit(context, program, options.show_ssa, options.show_brillig)?;
-
+    let abi =
+        abi_gen::gen_abi(context, &main_function, input_witnesses, return_witnesses, visibility);
     let file_map = filter_relevant_files(&[debug.clone()], &context.file_manager);
 
     Ok(CompiledProgram {
