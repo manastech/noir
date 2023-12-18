@@ -242,7 +242,7 @@ impl DebugState {
                 if *is_mut {
                     ast::Pattern::Mutable(
                         Box::new(ast::Pattern::Identifier(id.clone())),
-                        none_span(),
+                        id.span(),
                     )
                 } else {
                     ast::Pattern::Identifier(id.clone())
@@ -253,7 +253,7 @@ impl DebugState {
 
         let mut block_stmts = vec![ast::Statement {
             kind: ast::StatementKind::Let(let_stmt.clone()),
-            span: none_span(),
+            span: *span,
         }];
         block_stmts.extend(vars.iter().map(|(id, _)| {
             let var_id = self.insert_var(&id.0.contents);
@@ -262,18 +262,18 @@ impl DebugState {
         block_stmts.push(ast::Statement {
             kind: ast::StatementKind::Expression(ast::Expression {
                 kind: ast::ExpressionKind::Tuple(vars_exprs),
-                span: none_span(),
+                span: let_stmt.pattern.span(),
             }),
-            span: none_span(),
+            span: let_stmt.pattern.span(),
         });
 
         ast::Statement {
             kind: ast::StatementKind::Let(ast::LetStatement {
-                pattern: ast::Pattern::Tuple(vars_pattern, none_span()),
+                pattern: ast::Pattern::Tuple(vars_pattern, let_stmt.pattern.span()),
                 r#type: ast::UnresolvedType::unspecified(),
                 expression: ast::Expression {
                     kind: ast::ExpressionKind::Block(ast::BlockExpression(block_stmts)),
-                    span: none_span(),
+                    span: let_stmt.expression.span,
                 },
             }),
             span: *span,
@@ -297,16 +297,17 @@ impl DebugState {
         // };
 
         let let_kind = ast::StatementKind::Let(ast::LetStatement {
-            pattern: ast::Pattern::Identifier(ident("__debug_expr", none_span())),
+            pattern: ast::Pattern::Identifier(ident("__debug_expr", assign_stmt.expression.span)),
             r#type: ast::UnresolvedType::unspecified(),
             expression: assign_stmt.expression.clone(),
         });
+        let expression_span = assign_stmt.expression.span;
         let new_assign_stmt = match &assign_stmt.lvalue {
             ast::LValue::Ident(id) => {
                 let var_id = self
                     .lookup_var(&id.0.contents)
                     .unwrap_or_else(|| panic!("var lookup failed for var_name={}", &id.0.contents));
-                self.wrap_assign_var(var_id, id_expr(&ident("__debug_expr", none_span())))
+                self.wrap_assign_var(var_id, id_expr(&ident("__debug_expr", id.span())))
             }
             ast::LValue::Dereference(_lv) => {
                 // TODO
@@ -341,22 +342,22 @@ impl DebugState {
                 self.wrap_assign_member(
                     var_id,
                     &indexes,
-                    &id_expr(&ident("__debug_expr", none_span())),
+                    &id_expr(&ident("__debug_expr", expression_span)),
                 )
             }
         };
-        let ret_kind = ast::StatementKind::Expression(id_expr(&ident("__debug_expr", none_span())));
+        let ret_kind = ast::StatementKind::Expression(id_expr(&ident("__debug_expr", expression_span)));
 
         ast::Statement {
             kind: ast::StatementKind::Assign(ast::AssignStatement {
                 lvalue: assign_stmt.lvalue.clone(),
                 expression: ast::Expression {
                     kind: ast::ExpressionKind::Block(ast::BlockExpression(vec![
-                        ast::Statement { kind: let_kind, span: none_span() },
+                        ast::Statement { kind: let_kind, span: expression_span },
                         new_assign_stmt,
-                        ast::Statement { kind: ret_kind, span: none_span() },
+                        ast::Statement { kind: ret_kind, span: expression_span },
                     ])),
-                    span: none_span(),
+                    span: expression_span,
                 },
             }),
             span: *span,
