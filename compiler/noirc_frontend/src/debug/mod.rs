@@ -585,7 +585,7 @@ fn uint_expr(x: u128, span: Span) -> ast::Expression {
 
 fn sint_expr(x: i128) -> ast::Expression {
     ast::Expression {
-        kind: ast::ExpressionKind::Literal(ast::Literal::Integer(x.into(), x < 0)),
+        kind: ast::ExpressionKind::Literal(ast::Literal::Integer(x.abs().into(), x < 0)),
         span: none_span(),
     }
 }
