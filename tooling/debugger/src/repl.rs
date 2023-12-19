@@ -7,6 +7,7 @@ use acvm::{BlackBoxFunctionSolver, FieldElement};
 use nargo::{artifacts::debug::DebugArtifact, ops::DefaultForeignCallExecutor, NargoError};
 
 use easy_repl::{command, CommandStatus, Repl};
+use noirc_printable_type::PrintableValueDisplay;
 use std::cell::RefCell;
 
 use codespan_reporting::files::Files;
@@ -421,13 +422,10 @@ impl<'a, B: BlackBoxFunctionSolver> ReplDebugger<'a, B> {
 
     pub fn show_vars(&self) {
         let vars = self.context.get_variables();
-        println![
-            "{}",
-            vars.iter()
-                .map(|(var_name, value, var_type)| { format!("{var_name}:{var_type:?}={value:?}") })
-                .collect::<Vec<String>>()
-                .join(", ")
-        ];
+        for (var_name, value, var_type) in vars.iter() {
+            let printable_value = PrintableValueDisplay::Plain((*value).clone(), (*var_type).clone());
+            println!("{var_name}:{var_type:?} = {}", printable_value.to_string());
+        }
     }
 
     fn is_solved(&self) -> bool {
