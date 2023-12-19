@@ -1580,24 +1580,24 @@ impl From<&Type> for PrintableType {
                 let size = size.evaluate_to_u64().expect("Cannot print variable sized strings");
                 PrintableType::String { length: size }
             }
-            Type::FmtString(_, _) => unreachable!("format strings cannot be printed"),
-            Type::Error => unreachable!(),
-            Type::Unit => unreachable!(),
-            Type::Constant(_) => unreachable!(),
+            Type::FmtString(_, _) => PrintableType::FmtString {},
+            Type::Error => PrintableType::Error {},
+            Type::Unit => PrintableType::Unit {},
+            Type::Constant(_) => PrintableType::Constant {},
             Type::Struct(def, ref args) => {
                 let struct_type = def.borrow();
                 let fields = struct_type.get_fields(args);
                 let fields = vecmap(fields, |(name, typ)| (name, typ.into()));
                 PrintableType::Struct { fields, name: struct_type.name.to_string() }
             }
-            Type::TraitAsType(_, _) => unreachable!(),
+            Type::TraitAsType(_, _) => PrintableType::TraitAsType {},
             Type::Tuple(types) => PrintableType::Tuple { types: vecmap(types, |typ| typ.into()) },
-            Type::TypeVariable(_, _) => unreachable!(),
-            Type::NamedGeneric(..) => unreachable!(),
-            Type::Forall(..) => unreachable!(),
-            Type::Function(_, _, _) => unreachable!(),
-            Type::MutableReference(_) => unreachable!("cannot print &mut"),
-            Type::NotConstant => unreachable!(),
+            Type::TypeVariable(_, _) => PrintableType::TypeVariable {},
+            Type::NamedGeneric(..) => PrintableType::NamedGeneric {},
+            Type::Forall(..) => PrintableType::Forall {},
+            Type::Function(_, _, _) => PrintableType::Function {},
+            Type::MutableReference(_) => PrintableType::MutableReference {},
+            Type::NotConstant => PrintableType::NotConstant {},
         }
     }
 }
