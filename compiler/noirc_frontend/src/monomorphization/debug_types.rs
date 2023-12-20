@@ -1,4 +1,4 @@
-use crate::hir_def::types::Type;
+use crate::{hir_def::types::Type, TypeBinding};
 pub use noirc_errors::debug_info::{Types, VariableTypes, Variables};
 use noirc_printable_type::PrintableType;
 use std::collections::HashMap;
@@ -11,9 +11,21 @@ pub struct DebugTypes {
     next_type_id: u32,
 }
 
+fn resolve_type(var_type: Type) -> Type {
+    match var_type {
+        Type::NamedGeneric(type_var, _) | Type::TypeVariable(type_var, _) => {
+            match *type_var.borrow() {
+                TypeBinding::Bound(ref bound_type) => bound_type.clone(),
+                TypeBinding::Unbound(_) => unreachable!(),
+            }
+        }
+        _ => var_type,
+    }
+}
+
 impl DebugTypes {
     pub fn insert_var(&mut self, var_id: u32, var_name: &str, var_type: Type) {
-        let ptype: PrintableType = var_type.into();
+        let ptype: PrintableType = resolve_type(var_type).into();
         let type_id = self.types.get(&ptype).cloned().unwrap_or_else(|| {
             let type_id = self.next_type_id;
             self.next_type_id += 1;
