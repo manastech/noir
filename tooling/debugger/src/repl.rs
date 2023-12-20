@@ -424,7 +424,7 @@ impl<'a, B: BlackBoxFunctionSolver> ReplDebugger<'a, B> {
         let vars = self.context.get_variables();
         for (var_name, value, var_type) in vars.iter() {
             let printable_value = PrintableValueDisplay::Plain((*value).clone(), (*var_type).clone());
-            println!("{var_name}:{var_type:?} = {}", printable_value.to_string());
+            println!("{var_name}:{var_type:?} = {}", printable_value);
         }
     }
 
