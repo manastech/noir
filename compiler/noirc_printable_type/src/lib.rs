@@ -260,7 +260,7 @@ fn to_string(value: &PrintableValue, typ: &PrintableType) -> Option<String> {
         }
 
         (PrintableValue::Vec(values), PrintableType::Tuple { types }) => {
-            output.push_str("(");
+            output.push('(');
             let mut elems = values.iter().zip(types).peekable();
             while let Some((value, typ)) = elems.next() {
                 output.push_str(
@@ -270,7 +270,7 @@ fn to_string(value: &PrintableValue, typ: &PrintableType) -> Option<String> {
                     output.push_str(", ");
                 }
             }
-            output.push_str(")");
+            output.push(')');
         }
 
         _ => return None,

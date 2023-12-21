@@ -70,8 +70,8 @@ impl ForeignCall {
 
     pub(crate) fn lookup(op_name: &str) -> Option<ForeignCall> {
         let member_pre = "__debug_member_assign_";
-        if op_name.starts_with(member_pre) {
-            let arity = op_name[member_pre.len()..]
+        if let Some(op_suffix) = op_name.strip_prefix(member_pre) {
+            let arity = op_suffix
                 .parse::<u32>()
                 .expect("failed to parse debug_member_assign arity");
             return Some(ForeignCall::DebugMemberAssign(arity));

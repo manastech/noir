@@ -985,7 +985,7 @@ impl<'interner> Monomorphizer<'interner> {
                                 (get_field(&cursor_type, field_name).unwrap_or_else(|| {
                                     panic!("failed to find field_name: {field_name}")
                                 }) as i128)
-                                    .unsigned_abs() as u128;
+                                    .unsigned_abs();
                             cursor_type = next_type(&cursor_type, field_i as usize);
                             let index_id = self.interner.push_expr(HirExpression::Literal(
                                 HirLiteral::Integer(field_i.into(), false),

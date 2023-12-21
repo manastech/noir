@@ -122,7 +122,7 @@ impl DebugVars {
         self.id_to_value.get(&var_id)
     }
 
-    pub fn get_type<'a>(&'a self, var_id: u32) -> Option<&'a PrintableType> {
+    pub fn get_type(&self, var_id: u32) -> Option<&PrintableType> {
         self.id_to_type.get(&var_id).and_then(|type_id| self.types.get(type_id))
     }
 
