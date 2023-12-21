@@ -975,8 +975,9 @@ impl<'interner> Monomorphizer<'interner> {
                             .expect("unable to parse field element as i128");
                         if *i_neg { index = -index; }
                         if index < 0 {
+                            let index = index.unsigned_abs();
                             let field_name =
-                                self.debug_field_names.get(&(i as u32)).unwrap_or_else(|| {
+                                self.debug_field_names.get(&(index as u32)).unwrap_or_else(|| {
                                     panic!("field name not available for {i:?}")
                                 });
                             let field_i = (
