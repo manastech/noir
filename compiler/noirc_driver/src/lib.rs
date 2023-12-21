@@ -10,7 +10,7 @@ use noirc_abi::{AbiParameter, AbiType, ContractEvent};
 use noirc_errors::{CustomDiagnostic, FileDiagnostic};
 use noirc_evaluator::create_circuit;
 use noirc_evaluator::errors::RuntimeError;
-use noirc_frontend::debug::DEBUG_PROLOGUE_CONTENTS;
+use noirc_frontend::debug::create_prologue_program;
 use noirc_frontend::graph::{CrateId, CrateName};
 use noirc_frontend::hir::def_map::{Contract, CrateDefMap};
 use noirc_frontend::hir::Context;
@@ -112,7 +112,7 @@ pub fn prepare_crate(context: &mut Context, file_name: &Path) -> CrateId {
     let path_to_debug_lib_file = Path::new(DEBUG_CRATE_NAME).join("lib.nr");
     let debug_file_id = context
         .file_manager
-        .add_file_with_contents(&path_to_debug_lib_file, DEBUG_PROLOGUE_CONTENTS)
+        .add_file_with_contents(&path_to_debug_lib_file, &create_prologue_program(8))
         .unwrap();
     let debug_crate_id = context.crate_graph.add_crate(debug_file_id);
 

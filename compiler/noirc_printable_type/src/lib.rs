@@ -47,7 +47,7 @@ pub enum PrintableType {
 
 impl PrintableType {
     /// Returns the number of field elements required to represent the type once encoded.
-    fn field_count(&self) -> Option<u32> {
+    pub fn field_count(&self) -> Option<u32> {
         match self {
             Self::Field
             | Self::SignedInteger { .. }

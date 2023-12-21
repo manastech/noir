@@ -155,7 +155,7 @@ impl DebugState {
         });
         // this part absolutely must happen after ast traversal above
         // so that oracle functions don't get wrapped, resulting in infinite recursion:
-        self.insert_state_set_oracle(module);
+        self.insert_state_set_oracle(module, 8);
     }
 
     fn wrap_assign_var(&mut self, var_id: u32, expr: ast::Expression) -> ast::Statement {
@@ -195,22 +195,21 @@ impl DebugState {
         indexes: &[ast::Expression],
         expr: &ast::Expression,
     ) -> ast::Statement {
-        let index_expr = ast::Expression {
-            kind: ast::ExpressionKind::Literal(ast::Literal::Array(ast::ArrayLiteral::Standard(
-                indexes.iter().rev().cloned().collect(),
-            ))),
-            span: none_span(),
-        };
+        let arity = indexes.len();
         let kind = ast::ExpressionKind::Call(Box::new(ast::CallExpression {
             func: Box::new(ast::Expression {
                 kind: ast::ExpressionKind::Variable(ast::Path {
-                    segments: vec![ident("__debug_member_assign", none_span())],
+                    segments: vec![ident(&format!["__debug_member_assign_{arity}"], none_span())],
                     kind: PathKind::Plain,
                     span: none_span(),
                 }),
                 span: none_span(),
             }),
-            arguments: vec![uint_expr(var_id as u128, none_span()), index_expr, expr.clone()],
+            arguments: [
+                vec![uint_expr(var_id as u128, none_span())],
+                vec![expr.clone()],
+                indexes.iter().rev().cloned().collect(),
+            ].concat(),
         }));
         ast::Statement {
             kind: ast::StatementKind::Semi(ast::Expression { kind, span: none_span() }),
@@ -286,7 +285,7 @@ impl DebugState {
         //
         //   __debug_var_assign(17, __debug_expr);
         //   // or:
-        //   __debug_member_assign_placeholder(17, indexes, field_names, __debug_expr);
+        //   __debug_member_assign_{arity}(17, __debug_expr, _v0, _v1..., _v{arity});
         //
         //   __debug_expr
         // };
@@ -466,16 +465,18 @@ impl DebugState {
         }
     }
 
-    fn insert_state_set_oracle(&self, module: &mut ParsedModule) {
-        let (program, errors) = parse_program(
-            r#"
-            use dep::__debug::{
+    fn insert_state_set_oracle(&self, module: &mut ParsedModule, n: u32) {
+        let member_assigns = (1..=n).map(|i| {
+            format!["__debug_member_assign_{i}"]
+        }).collect::<Vec<String>>().join(",\n");
+        let (program, errors) = parse_program(&format!(r#"
+            use dep::__debug::{{
                 __debug_var_assign,
                 __debug_var_drop,
-                __debug_member_assign,
                 __debug_dereference_assign,
-            };"#,
-        );
+                {member_assigns},
+            }};"#
+        ));
         if !errors.is_empty() {
             panic!("errors parsing internal oracle definitions: {errors:?}")
         }
@@ -483,57 +484,57 @@ impl DebugState {
     }
 }
 
-pub const DEBUG_PROLOGUE_CONTENTS: &str = r#"
-    #[oracle(__debug_var_assign)]
-    unconstrained fn __debug_var_assign_oracle<T>(_var_id: u32, _value: T) {}
-    unconstrained fn __debug_var_assign_inner<T>(var_id: u32, value: T) {
-        __debug_var_assign_oracle(var_id, value);
-    }
-    pub fn __debug_var_assign<T>(var_id: u32, value: T) {
-        __debug_var_assign_inner(var_id, value);
-    }
+pub fn create_prologue_program(n: u32) -> String {
+    [
+        r#"
+            #[oracle(__debug_var_assign)]
+            unconstrained fn __debug_var_assign_oracle<T>(_var_id: u32, _value: T) {}
+            unconstrained fn __debug_var_assign_inner<T>(var_id: u32, value: T) {
+                __debug_var_assign_oracle(var_id, value);
+            }
+            pub fn __debug_var_assign<T>(var_id: u32, value: T) {
+                __debug_var_assign_inner(var_id, value);
+            }
 
-    #[oracle(__debug_var_drop)]
-    unconstrained fn __debug_var_drop_oracle<T>(_var_id: u32) {}
-    unconstrained fn __debug_var_drop_inner<T>(var_id: u32) {
-        __debug_var_drop_oracle(var_id);
-    }
-    pub fn __debug_var_drop<T>(var_id: u32) {
-        __debug_var_drop_inner(var_id);
-    }
+            #[oracle(__debug_var_drop)]
+            unconstrained fn __debug_var_drop_oracle<T>(_var_id: u32) {}
+            unconstrained fn __debug_var_drop_inner<T>(var_id: u32) {
+                __debug_var_drop_oracle(var_id);
+            }
+            pub fn __debug_var_drop<T>(var_id: u32) {
+                __debug_var_drop_inner(var_id);
+            }
 
-    #[oracle(__debug_member_assign)]
-    unconstrained fn __debug_member_assign_oracle<T>(
-        _var_id: u32, _value: T, _indexes_len: Field,
-        _v0: Field, _v1: Field, _v2: Field, _v3: Field, _v4: Field, _v5: Field, _v6: Field, _v7: Field,
-    ) {}
-    unconstrained fn __debug_member_assign_inner<T>(
-        var_id: u32, value: T, indexes_len: Field,
-        v0: Field, v1: Field, v2: Field, v3: Field, v4: Field, v5: Field, v6: Field, v7: Field,
-    ) {
-        __debug_member_assign_oracle(var_id, value, indexes_len, v0, v1, v2, v3, v4, v5, v6, v7);
-    }
-    pub fn __debug_member_assign<T>(var_id: u32, indexes: [Field], value: T) {
-        let v0 = if indexes.len() as u32 >= 1 { indexes[0] } else { 0 };
-        let v1 = if indexes.len() as u32 >= 2 { indexes[1] } else { 0 };
-        let v2 = if indexes.len() as u32 >= 3 { indexes[2] } else { 0 };
-        let v3 = if indexes.len() as u32 >= 4 { indexes[3] } else { 0 };
-        let v4 = if indexes.len() as u32 >= 5 { indexes[4] } else { 0 };
-        let v5 = if indexes.len() as u32 >= 6 { indexes[5] } else { 0 };
-        let v6 = if indexes.len() as u32 >= 7 { indexes[6] } else { 0 };
-        let v7 = if indexes.len() as u32 >= 8 { indexes[7] } else { 0 };
-        __debug_member_assign_inner(var_id, value, indexes.len(), v0, v1, v2, v3, v4, v5, v6, v7);
-    }
+            #[oracle(__debug_dereference_assign)]
+            unconstrained fn __debug_dereference_assign_oracle<T>(_var_id: u32, _value: T) {}
+            unconstrained fn __debug_dereference_assign_inner<T>(var_id: u32, value: T) {
+                __debug_dereference_assign_oracle(var_id, value);
+            }
+            pub fn __debug_dereference_assign<T>(var_id: u32, value: T) {
+                __debug_dereference_assign_inner(var_id, value);
+            }
+        "#.to_string(),
+        (1..=n).map(|n| {
+            let var_sig = (0..n).map(|i| format!["_v{i}: Field"]).collect::<Vec<String>>().join(", ");
+            let vars = (0..n).map(|i| format!["_v{i}"]).collect::<Vec<String>>().join(", ");
+            format!(r#"
+                #[oracle(__debug_member_assign_{n})]
+                unconstrained fn __debug_member_assign_oracle_{n}<T>(
+                    _var_id: u32, _value: T, {var_sig}
+                ) {{}}
+                unconstrained fn __debug_member_assign_inner_{n}<T>(
+                    var_id: u32, value: T, {var_sig}
+                ) {{
+                    __debug_member_assign_oracle_{n}(var_id, value, {vars});
+                }}
+                pub fn __debug_member_assign_{n}<T>(var_id: u32, value: T, {var_sig}) {{
+                    __debug_member_assign_inner_{n}(var_id, value, {vars});
+                }}
 
-    #[oracle(__debug_dereference_assign)]
-    unconstrained fn __debug_dereference_assign_oracle<T>(_var_id: u32, _value: T) {}
-    unconstrained fn __debug_dereference_assign_inner<T>(var_id: u32, value: T) {
-        __debug_dereference_assign_oracle(var_id, value);
-    }
-    pub fn __debug_dereference_assign<T>(var_id: u32, value: T) {
-        __debug_dereference_assign_inner(var_id, value);
-    }
-"#;
+            "#)
+        }).collect::<Vec<String>>().join("\n"),
+    ].join("\n")
+}
 
 fn pattern_vars(pattern: &ast::Pattern) -> Vec<(ast::Ident, bool)> {
     let mut vars = vec![];

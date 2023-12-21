@@ -122,6 +122,10 @@ impl DebugVars {
         self.id_to_value.get(&var_id)
     }
 
+    pub fn get_type<'a>(&'a self, var_id: u32) -> Option<&'a PrintableType> {
+        self.id_to_type.get(&var_id).and_then(|type_id| { self.types.get(type_id) })
+    }
+
     pub fn drop(&mut self, var_id: u32) {
         self.active.remove(&var_id);
     }

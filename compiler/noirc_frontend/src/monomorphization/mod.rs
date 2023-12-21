@@ -25,7 +25,7 @@ use crate::{
         types,
     },
     node_interner::{
-        self, DefinitionKind, ExprId, NodeInterner, StmtId, TraitImplKind, TraitMethodId,
+        self, DefinitionKind, NodeInterner, StmtId, TraitImplKind, TraitMethodId,
     },
     token::FunctionAttribute,
     ContractFunctionType, FunctionKind, Type, TypeBinding, TypeBindings, TypeVariableKind,
@@ -43,6 +43,8 @@ struct LambdaContext {
     env_ident: ast::Ident,
     captures: Vec<HirCapturedVar>,
 }
+
+const DEBUG_MEMBER_ASSIGN_PREFIX: &str = "__debug_member_assign_";
 
 /// The context struct for the monomorphization pass.
 ///
@@ -945,82 +947,60 @@ impl<'interner> Monomorphizer<'interner> {
                 }
             } else if let (
                 Some(HirExpression::Literal(HirLiteral::Integer(fe_var_id, _))),
-                Some(HirExpression::Literal(HirLiteral::Array(HirArrayLiteral::Standard(
-                    indexes_vec,
-                )))),
                 Some(HirExpression::Ident(HirIdent { id, .. })),
                 true,
             ) = (
                 hir_arguments.get(0),
                 hir_arguments.get(1),
-                hir_arguments.get(2),
-                name == "__debug_member_assign",
+                name.starts_with(DEBUG_MEMBER_ASSIGN_PREFIX),
             ) {
                 let var_def_name = self.interner.definition(*id).name.clone();
-                let indexes_type = self.interner.id_type(call.arguments[1]);
                 let var_type = self.interner.id_type(call.arguments[2]);
                 let var_id = fe_var_id.to_u128() as u32;
+                let arity = name[DEBUG_MEMBER_ASSIGN_PREFIX.len()..].parse::<usize>()
+                    .expect("failed to parse member assign arity");
 
                 let mut cursor_type = self
                     .debug_types
                     .get_type(var_id)
                     .unwrap_or_else(|| panic!("type not found for var_id={var_id}"))
                     .clone();
-                let indexes: Vec<ExprId> = indexes_vec
-                    .iter()
-                    .map(|i_id| {
-                        if let ast::Expression::Literal(ast::Literal::Integer(
-                            fe,
-                            _type,
-                            _location,
-                        )) = self.expr(*i_id)
-                        {
-                            let i = fe
-                                .to_string()
-                                .parse::<i128>()
-                                .expect("unable to parse field element as i128");
-                            if i < 0 {
-                                let i = i.unsigned_abs();
-                                let field_name =
-                                    self.debug_field_names.get(&(i as u32)).unwrap_or_else(|| {
-                                        panic!("field name not available for {i:?}")
-                                    });
-                                let field_i =
-                                    get_field(&cursor_type, field_name).unwrap_or_else(|| {
-                                        panic!("failed to find field_name: {field_name}")
-                                    }) as u128;
-                                cursor_type = next_type(&cursor_type, field_i as usize);
-                                let index_id = self.interner.push_expr(HirExpression::Literal(
-                                    HirLiteral::Integer(field_i.into(), false),
-                                ));
-                                self.interner.push_expr_type(&index_id, Type::FieldElement);
-                                self.interner.push_expr_location(
-                                    index_id,
-                                    call.location.span,
-                                    call.location.file,
-                                );
-                                index_id
-                            } else {
-                                cursor_type = next_type(&cursor_type, 0);
-                                *i_id
-                            }
+                for i in 0..arity {
+                    if let Some(HirExpression::Literal(HirLiteral::Integer(
+                        fe_i, i_neg
+                    ))) = hir_arguments.get(2+i) {
+                        let mut index = fe_i
+                            .to_string()
+                            .parse::<i128>()
+                            .expect("unable to parse field element as i128");
+                        if *i_neg { index = -index; }
+                        if index < 0 {
+                            let field_name =
+                                self.debug_field_names.get(&(i as u32)).unwrap_or_else(|| {
+                                    panic!("field name not available for {i:?}")
+                                });
+                            let field_i = (
+                                get_field(&cursor_type, field_name).unwrap_or_else(|| {
+                                panic!("failed to find field_name: {field_name}")
+                            }) as i128).unsigned_abs() as u128;
+                            cursor_type = next_type(&cursor_type, field_i as usize);
+                            let index_id = self.interner.push_expr(HirExpression::Literal(
+                                HirLiteral::Integer(field_i.into(), false),
+                            ));
+                            self.interner.push_expr_type(&index_id, Type::FieldElement);
+                            self.interner.push_expr_location(
+                                index_id,
+                                call.location.span,
+                                call.location.file,
+                            );
+                            arguments[2+i] = self.expr(index_id);
                         } else {
                             cursor_type = next_type(&cursor_type, 0);
-                            *i_id
                         }
-                    })
-                    .collect();
-
-                let index_array_id = self.interner.push_expr(HirExpression::Literal(
-                    HirLiteral::Array(HirArrayLiteral::Standard(indexes)),
-                ));
-                self.interner.push_expr_type(&index_array_id, indexes_type);
-                self.interner.push_expr_location(
-                    index_array_id,
-                    call.location.span,
-                    call.location.file,
-                );
-                arguments[1] = self.expr(index_array_id);
+                    } else {
+                        cursor_type = next_type(&cursor_type, 0);
+                    }
+                }
 
                 if &var_def_name != "__debug_expr" {
                     self.debug_types.insert_var(var_id, &var_def_name, var_type);
