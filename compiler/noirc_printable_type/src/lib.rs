@@ -32,12 +32,22 @@ pub enum PrintableType {
     String {
         length: u64,
     },
+    FmtString {},
+    Error {},
+    Unit {},
+    Constant {},
+    TraitAsType {},
+    TypeVariable {},
+    NamedGeneric {},
+    Forall {},
     Function,
+    MutableReference {},
+    NotConstant {},
 }
 
 impl PrintableType {
     /// Returns the number of field elements required to represent the type once encoded.
-    fn field_count(&self) -> Option<u32> {
+    pub fn field_count(&self) -> Option<u32> {
         match self {
             Self::Field
             | Self::SignedInteger { .. }
@@ -54,6 +64,7 @@ impl PrintableType {
                 count.and_then(|c| field_type.field_count().map(|fc| c + fc))
             }),
             Self::String { length } => Some(*length as u32),
+            _ => Some(0),
         }
     }
 }
@@ -67,6 +78,7 @@ pub enum PrintableValue {
     String(String),
     Vec(Vec<PrintableValue>),
     Struct(BTreeMap<String, PrintableValue>),
+    Other,
 }
 
 /// In order to display a `PrintableValue` we need a `PrintableType` to accurately
@@ -343,7 +355,6 @@ pub fn decode_value(
                 .next()
                 .expect("not enough data to decode variable array length")
                 .to_u128() as usize;
-            println!["FIRST ARG (LENGTH?)={length}"];
             let mut array_elements = Vec::with_capacity(length);
             for _ in 0..length {
                 array_elements.push(decode_value(field_iterator, typ));
@@ -379,6 +390,7 @@ pub fn decode_value(
 
             PrintableValue::Struct(struct_map)
         }
+        _ => PrintableValue::Other,
     }
 }
 

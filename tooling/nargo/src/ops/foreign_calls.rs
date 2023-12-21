@@ -24,7 +24,7 @@ pub trait ForeignCallExecutor {
 pub(crate) enum ForeignCall {
     DebugVarAssign,
     DebugVarDrop,
-    DebugMemberAssign,
+    DebugMemberAssign(u32),
     DebugDerefAssign,
     Sequence,
     ReverseSequence,
@@ -47,7 +47,15 @@ impl ForeignCall {
         match self {
             ForeignCall::DebugVarAssign => "__debug_var_assign",
             ForeignCall::DebugVarDrop => "__debug_var_drop",
-            ForeignCall::DebugMemberAssign => "__debug_member_assign",
+            ForeignCall::DebugMemberAssign(1) => "__debug_member_assign_1",
+            ForeignCall::DebugMemberAssign(2) => "__debug_member_assign_2",
+            ForeignCall::DebugMemberAssign(3) => "__debug_member_assign_3",
+            ForeignCall::DebugMemberAssign(4) => "__debug_member_assign_4",
+            ForeignCall::DebugMemberAssign(5) => "__debug_member_assign_5",
+            ForeignCall::DebugMemberAssign(6) => "__debug_member_assign_6",
+            ForeignCall::DebugMemberAssign(7) => "__debug_member_assign_7",
+            ForeignCall::DebugMemberAssign(8) => "__debug_member_assign_8",
+            ForeignCall::DebugMemberAssign(_) => panic!("unsupported member assignment arity"),
             ForeignCall::DebugDerefAssign => "__debug_deref_assign",
             ForeignCall::Sequence => "get_number_sequence",
             ForeignCall::ReverseSequence => "get_reverse_number_sequence",
@@ -61,10 +69,16 @@ impl ForeignCall {
     }
 
     pub(crate) fn lookup(op_name: &str) -> Option<ForeignCall> {
+        let member_pre = "__debug_member_assign_";
+        if op_name.starts_with(member_pre) {
+            let arity = op_name[member_pre.len()..]
+                .parse::<u32>()
+                .expect("failed to parse debug_member_assign arity");
+            return Some(ForeignCall::DebugMemberAssign(arity));
+        }
         match op_name {
             "__debug_var_assign" => Some(ForeignCall::DebugVarAssign),
             "__debug_var_drop" => Some(ForeignCall::DebugVarDrop),
-            "__debug_member_assign" => Some(ForeignCall::DebugMemberAssign),
             "__debug_deref_assign" => Some(ForeignCall::DebugDerefAssign),
             "get_number_sequence" => Some(ForeignCall::Sequence),
             "get_reverse_number_sequence" => Some(ForeignCall::ReverseSequence),
@@ -160,37 +174,29 @@ impl DefaultForeignCallExecutor {
                 }
                 Ok(ForeignCallResult { values: vec![] })
             }
-            Some(ForeignCall::DebugMemberAssign) => {
-                if let (
-                    Some(ds),
-                    Some(ForeignCallParam::Single(var_id_value)),
-                    Some(fcp_value @ ForeignCallParam::Single(_value)),
-                    Some(ForeignCallParam::Single(indexes_len_value)),
-                ) = (
-                    debug_vars,
-                    foreign_call.inputs.get(0),
-                    foreign_call.inputs.get(1),
-                    foreign_call.inputs.get(2),
-                ) {
-                    let indexes_value: Vec<u32> = (0..indexes_len_value.to_u128() as usize)
-                        .map(|i| {
-                            foreign_call
-                                .inputs
-                                .get(3 + i)
-                                .and_then(|fcp_v| {
-                                    if let ForeignCallParam::Single(v) = fcp_v {
-                                        Some(v.to_u128() as u32)
-                                    } else {
-                                        None
-                                    }
-                                })
-                                .expect("expected index not defined")
+            Some(ForeignCall::DebugMemberAssign(arity)) => {
+                if let (Some(ds), Some(ForeignCallParam::Single(var_id_value))) =
+                    (debug_vars, foreign_call.inputs.get(0))
+                {
+                    let arity = arity as usize;
+                    let var_id = var_id_value.to_u128() as u32;
+                    let n = foreign_call.inputs.len();
+                    let indexes: Vec<u32> = foreign_call.inputs[(n - arity)..n]
+                        .iter()
+                        .map(|fcp_v| {
+                            if let ForeignCallParam::Single(v) = fcp_v {
+                                v.to_u128() as u32
+                            } else {
+                                panic!("expected ForeignCallParam::Single(v)");
+                            }
                         })
                         .collect();
-                    let var_id = var_id_value.to_u128() as u32;
-                    let len = indexes_len_value.to_u128() as usize;
-                    let indexes: Vec<u32> = indexes_value[0..len].to_vec();
-                    ds.assign_field(var_id, indexes, &fcp_value.values());
+                    let values: Vec<Value> = (0..n - 1 - arity)
+                        .flat_map(|i| {
+                            foreign_call.inputs.get(1 + i).map(|fci| fci.values()).unwrap_or(vec![])
+                        })
+                        .collect();
+                    ds.assign_field(var_id, indexes, &values);
                 }
                 Ok(ForeignCallResult { values: vec![] })
             }
