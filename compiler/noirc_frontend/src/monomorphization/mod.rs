@@ -922,6 +922,15 @@ impl<'interner> Monomorphizer<'interner> {
         })
     }
 
+    fn intern_var_id(&mut self, var_id: u32, location: &Location) -> node_interner::ExprId {
+        let expr_id = self
+            .interner
+            .push_expr(HirExpression::Literal(HirLiteral::Integer((var_id as u128).into(), false)));
+        self.interner.push_expr_type(&expr_id, Type::FieldElement);
+        self.interner.push_expr_location(expr_id, location.span, location.file);
+        expr_id
+    }
+
     fn function_call(
         &mut self,
         call: HirCallExpression,
@@ -939,9 +948,19 @@ impl<'interner> Monomorphizer<'interner> {
             {
                 let var_def = self.interner.definition(*id);
                 let var_type = self.interner.id_type(call.arguments[1]);
-                let var_id = fe_var_id.to_u128() as u32;
+                let fe_var_id = fe_var_id.to_u128() as u32;
                 if var_def.name != "__debug_expr" {
-                    self.debug_types.insert_var(var_id, &var_def.name, var_type);
+                    let var_id = self.debug_types.insert_var(fe_var_id, &var_def.name, var_type);
+                    let interned_var_id = self.intern_var_id(var_id, &call.location);
+                    arguments[0] = self.expr(interned_var_id);
+                }
+            } else if let (Some(HirExpression::Literal(HirLiteral::Integer(fe_var_id, _))), true) =
+                (hir_arguments.get(0), name == "__debug_var_drop")
+            {
+                let fe_var_id = fe_var_id.to_u128() as u32;
+                if let Some(var_id) = self.debug_types.get_var_id(fe_var_id) {
+                    let interned_var_id = self.intern_var_id(var_id, &call.location);
+                    arguments[0] = self.expr(interned_var_id);
                 }
             } else if let (
                 Some(HirExpression::Literal(HirLiteral::Integer(fe_var_id, _))),
@@ -954,15 +973,15 @@ impl<'interner> Monomorphizer<'interner> {
             ) {
                 let var_def_name = self.interner.definition(*id).name.clone();
                 let var_type = self.interner.id_type(call.arguments[2]);
-                let var_id = fe_var_id.to_u128() as u32;
+                let fe_var_id = fe_var_id.to_u128() as u32;
                 let arity = name[DEBUG_MEMBER_ASSIGN_PREFIX.len()..]
                     .parse::<usize>()
                     .expect("failed to parse member assign arity");
 
                 let mut cursor_type = self
                     .debug_types
-                    .get_type(var_id)
-                    .unwrap_or_else(|| panic!("type not found for var_id={var_id}"))
+                    .get_type(fe_var_id)
+                    .unwrap_or_else(|| panic!("type not found for fe_var_id={fe_var_id}"))
                     .clone();
                 for i in 0..arity {
                     if let Some(HirExpression::Literal(HirLiteral::Integer(fe_i, i_neg))) =
@@ -1006,7 +1025,9 @@ impl<'interner> Monomorphizer<'interner> {
                 }
 
                 if &var_def_name != "__debug_expr" {
-                    self.debug_types.insert_var(var_id, &var_def_name, var_type);
+                    let var_id = self.debug_types.insert_var(fe_var_id, &var_def_name, var_type);
+                    let interned_var_id = self.intern_var_id(var_id, &call.location);
+                    arguments[0] = self.expr(interned_var_id);
                 }
             }
         }
