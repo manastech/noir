@@ -946,22 +946,28 @@ impl<'interner> Monomorphizer<'interner> {
                 true,
             ) = (hir_arguments.get(0), hir_arguments.get(1), name == "__debug_var_assign")
             {
+                // update variable assignments
                 let var_def = self.interner.definition(*id);
                 let var_type = self.interner.id_type(call.arguments[1]);
                 let fe_var_id = fe_var_id.to_u128() as u32;
-                if var_def.name != "__debug_expr" {
-                    let var_id = self.debug_types.insert_var(fe_var_id, &var_def.name, var_type);
-                    let interned_var_id = self.intern_var_id(var_id, &call.location);
-                    arguments[0] = self.expr(interned_var_id);
-                }
+                let var_id = if var_def.name != "__debug_expr" {
+                    self.debug_types.insert_var(fe_var_id, &var_def.name, var_type)
+                } else {
+                    self.debug_types.get_var_id(fe_var_id).unwrap()
+                };
+                let interned_var_id = self.intern_var_id(var_id, &call.location);
+                arguments[0] = self.expr(interned_var_id);
+
             } else if let (Some(HirExpression::Literal(HirLiteral::Integer(fe_var_id, _))), true) =
                 (hir_arguments.get(0), name == "__debug_var_drop")
             {
+                // update variable drops (ie. when the var goes out of scope)
                 let fe_var_id = fe_var_id.to_u128() as u32;
                 if let Some(var_id) = self.debug_types.get_var_id(fe_var_id) {
                     let interned_var_id = self.intern_var_id(var_id, &call.location);
                     arguments[0] = self.expr(interned_var_id);
                 }
+
             } else if let (
                 Some(HirExpression::Literal(HirLiteral::Integer(fe_var_id, _))),
                 Some(HirExpression::Ident(HirIdent { id, .. })),
@@ -971,6 +977,7 @@ impl<'interner> Monomorphizer<'interner> {
                 hir_arguments.get(1),
                 name.starts_with(DEBUG_MEMBER_ASSIGN_PREFIX),
             ) {
+                // update variable member assignments
                 let var_def_name = self.interner.definition(*id).name.clone();
                 let var_type = self.interner.id_type(call.arguments[2]);
                 let fe_var_id = fe_var_id.to_u128() as u32;
@@ -1021,11 +1028,13 @@ impl<'interner> Monomorphizer<'interner> {
                     }
                 }
 
-                if &var_def_name != "__debug_expr" {
-                    let var_id = self.debug_types.insert_var(fe_var_id, &var_def_name, var_type);
-                    let interned_var_id = self.intern_var_id(var_id, &call.location);
-                    arguments[0] = self.expr(interned_var_id);
-                }
+                let var_id = if &var_def_name != "__debug_expr" {
+                    self.debug_types.insert_var(fe_var_id, &var_def_name, var_type)
+                } else {
+                    self.debug_types.get_var_id(fe_var_id).unwrap()
+                };
+                let interned_var_id = self.intern_var_id(var_id, &call.location);
+                arguments[0] = self.expr(interned_var_id);
             }
         }
         let return_type = self.interner.id_type(id);
