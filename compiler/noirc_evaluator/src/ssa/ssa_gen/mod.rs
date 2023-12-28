@@ -665,7 +665,25 @@ impl<'a> FunctionContext<'a> {
             Expression::Binary(Binary { lhs, operator: BinaryOpKind::Equal, rhs, .. }) => {
                 let lhs = self.codegen_non_tuple_expression(lhs)?;
                 let rhs = self.codegen_non_tuple_expression(rhs)?;
-                self.builder.set_location(location).insert_constrain(lhs, rhs, assert_message);
+                if matches!(self.builder.type_of_value(lhs), Type::Array(..)) {
+                    // Expand constraints on array equality so that:
+                    //   assert(a == b);
+                    // becomes
+                    //   let r = a == b;
+                    //   assert(r);
+                    let expr = self
+                        .insert_binary(lhs, BinaryOpKind::Equal, rhs, location)
+                        .into_leaf()
+                        .eval(self);
+                    let true_literal = self.builder.numeric_constant(true, Type::bool());
+                    self.builder.set_location(location).insert_constrain(
+                        expr,
+                        true_literal,
+                        assert_message,
+                    );
+                } else {
+                    self.builder.set_location(location).insert_constrain(lhs, rhs, assert_message);
+                }
             }
 
             _ => {
