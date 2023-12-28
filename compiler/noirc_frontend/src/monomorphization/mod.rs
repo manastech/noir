@@ -968,10 +968,7 @@ impl<'interner> Monomorphizer<'interner> {
                     if let Some(HirExpression::Literal(HirLiteral::Integer(fe_i, i_neg))) =
                         hir_arguments.get(2 + i)
                     {
-                        let mut index = fe_i
-                            .to_string()
-                            .parse::<i128>()
-                            .expect("unable to parse field element as i128");
+                        let mut index = fe_i.to_i128();
                         if *i_neg {
                             index = -index;
                         }
