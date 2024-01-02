@@ -246,8 +246,7 @@ impl<F: PrimeField> FieldElement<F> {
     pub fn to_i128(self) -> i128 {
         let is_negative = self.is_negative();
         let bytes = if is_negative { self.neg() } else { self }.to_be_bytes();
-        i128::from_be_bytes(bytes[16..32].try_into().unwrap())
-            * if is_negative { -1 } else { 1 }
+        i128::from_be_bytes(bytes[16..32].try_into().unwrap()) * if is_negative { -1 } else { 1 }
     }
 
     pub fn try_to_u64(&self) -> Option<u64> {

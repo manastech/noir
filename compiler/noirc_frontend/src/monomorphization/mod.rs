@@ -957,7 +957,6 @@ impl<'interner> Monomorphizer<'interner> {
                 };
                 let interned_var_id = self.intern_var_id(var_id, &call.location);
                 arguments[0] = self.expr(interned_var_id);
-
             } else if let (Some(HirExpression::Literal(HirLiteral::Integer(fe_var_id, _))), true) =
                 (hir_arguments.get(0), name == "__debug_var_drop")
             {
@@ -967,7 +966,6 @@ impl<'interner> Monomorphizer<'interner> {
                     let interned_var_id = self.intern_var_id(var_id, &call.location);
                     arguments[0] = self.expr(interned_var_id);
                 }
-
             } else if let (
                 Some(HirExpression::Literal(HirLiteral::Integer(fe_var_id, _))),
                 Some(HirExpression::Ident(HirIdent { id, .. })),
