@@ -305,8 +305,13 @@ impl DebugState {
                 self.wrap_assign_var(var_id, id_expr(&ident("__debug_expr", id.span())))
             }
             ast::LValue::Dereference(_lv) => {
-                // TODO
-                unimplemented![]
+                // TODO: this is a dummy statement for now, but we should
+                // somehow track the derefence and update the pointed to
+                // variable
+                ast::Statement {
+                    kind: ast::StatementKind::Expression(uint_expr(0, *span)),
+                    span: *span,
+                }
             }
             _ => {
                 let mut indexes = vec![];

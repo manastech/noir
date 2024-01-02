@@ -222,6 +222,9 @@ fn to_string(value: &PrintableValue, typ: &PrintableType) -> Option<String> {
         (PrintableValue::Field(_), PrintableType::Function) => {
             output.push_str("<<function>>");
         }
+        (_, PrintableType::MutableReference { .. }) => {
+            output.push_str("<<mutable ref>>");
+        }
         (PrintableValue::Vec(vector), PrintableType::Array { typ, .. }) => {
             output.push('[');
             let mut values = vector.iter().peekable();
