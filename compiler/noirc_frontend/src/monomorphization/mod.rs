@@ -949,6 +949,7 @@ impl<'interner> Monomorphizer<'interner> {
                 // update variable assignments
                 let var_def = self.interner.definition(*id);
                 let var_type = self.interner.id_type(call.arguments[1]);
+                let is_type_function = matches!(var_type, Type::Function(..));
                 let fe_var_id = fe_var_id.to_u128() as u32;
                 let var_id = if var_def.name != "__debug_expr" {
                     self.debug_types.insert_var(fe_var_id, &var_def.name, var_type)
@@ -956,7 +957,12 @@ impl<'interner> Monomorphizer<'interner> {
                     self.debug_types.get_var_id(fe_var_id).unwrap()
                 };
                 let interned_var_id = self.intern_var_id(var_id, &call.location);
+
                 arguments[0] = self.expr(interned_var_id);
+                if is_type_function {
+                    // replace value passed for function types with a dummy value
+                    arguments[1] = self.expr(interned_var_id);
+                }
             } else if let (Some(HirExpression::Literal(HirLiteral::Integer(fe_var_id, _))), true) =
                 (hir_arguments.get(0), name == "__debug_var_drop")
             {
@@ -978,6 +984,7 @@ impl<'interner> Monomorphizer<'interner> {
                 // update variable member assignments
                 let var_def_name = self.interner.definition(*id).name.clone();
                 let var_type = self.interner.id_type(call.arguments[2]);
+                let is_type_function = matches!(var_type, Type::Function(..));
                 let fe_var_id = fe_var_id.to_u128() as u32;
                 let arity = name[DEBUG_MEMBER_ASSIGN_PREFIX.len()..]
                     .parse::<usize>()
@@ -1033,6 +1040,10 @@ impl<'interner> Monomorphizer<'interner> {
                 };
                 let interned_var_id = self.intern_var_id(var_id, &call.location);
                 arguments[0] = self.expr(interned_var_id);
+                if is_type_function {
+                    // replace value passed for function types with a dummy value
+                    arguments[2] = self.expr(interned_var_id);
+                }
             }
         }
         let return_type = self.interner.id_type(id);
