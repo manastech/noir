@@ -124,8 +124,13 @@ fn convert_string_inputs(
     // We must use a flat map here as each value in a struct will be in a separate input value
     let mut input_values_as_fields =
         input_values.iter().flat_map(|param| vecmap(param.values(), |value| value.to_field()));
+    let mut size_iter = input_values.iter().map(|param| param.values().len());
 
-    let value = decode_value(&mut input_values_as_fields, &printable_type);
+    let value = decode_value(
+        &mut input_values_as_fields,
+        &mut size_iter,
+        &printable_type
+    ).expect("expected field not provided");
 
     Ok(PrintableValueDisplay::Plain(value, printable_type))
 }
@@ -160,7 +165,9 @@ fn convert_fmt_string_inputs(
                     .values()
                     .into_iter()
                     .map(|value| value.to_field());
-                decode_value(&mut input_values_as_fields, &printable_type)
+                let mut size_iter = [input_and_printable_values[i].values().len()].into_iter();
+                decode_value(&mut input_values_as_fields, &mut size_iter, &printable_type)
+                    .expect("expected field not provided")
             }
             (Some(type_size), _) => {
                 // We must use a flat map here as each value in a struct will be in a separate input value
@@ -168,7 +175,12 @@ fn convert_fmt_string_inputs(
                     [i..(i + (type_size as usize))]
                     .iter()
                     .flat_map(|param| vecmap(param.values(), |value| value.to_field()));
-                decode_value(&mut input_values_as_fields, &printable_type)
+                let mut size_iter = input_and_printable_values
+                    [i..(i + (type_size as usize))]
+                    .iter()
+                    .map(|param| param.values().len());
+                decode_value(&mut input_values_as_fields, &mut size_iter, &printable_type)
+                    .expect("expected field not provided")
             }
             (None, _) => {
                 panic!("unexpected None field_count for type {printable_type:?}");
@@ -337,60 +349,81 @@ fn format_field_string(field: FieldElement) -> String {
 /// Assumes that `field_iterator` contains enough [FieldElement] in order to decode the [PrintableType]
 pub fn decode_value(
     field_iterator: &mut impl Iterator<Item = FieldElement>,
+    size_iterator: &mut impl Iterator<Item = usize>,
     typ: &PrintableType,
-) -> PrintableValue {
+) -> Option<PrintableValue> {
+    println!["decode_value typ={typ:#?}"];
     match typ {
         PrintableType::Field
         | PrintableType::SignedInteger { .. }
         | PrintableType::UnsignedInteger { .. }
         | PrintableType::Boolean
         | PrintableType::Function => {
-            let field_element = field_iterator.next().unwrap();
-
-            PrintableValue::Field(field_element)
+            let size = size_iterator.next().expect("expected size not provided for type {typ:?}");
+            println!["  size={size}"];
+            if size != 1 { panic!("expected size=1 for scalar type, received size={size}") }
+            field_iterator.next().map(|field_element| {
+                PrintableValue::Field(field_element)
+            })
         }
         PrintableType::Array { length: None, typ } => {
-            // TODO: maybe the len is the first arg? not sure
-            let length = field_iterator
-                .next()
-                .expect("not enough data to decode variable array length")
-                .to_u128() as usize;
-            let mut array_elements = Vec::with_capacity(length);
-            for _ in 0..length {
-                array_elements.push(decode_value(field_iterator, typ));
+            let size = size_iterator.next().expect("expected size not provided for type {typ:?}");
+            println!["  size={size}"];
+            let mut array_elements = Vec::with_capacity(size);
+            for _ in 0..size {
+                let value = decode_value(field_iterator, size_iterator, typ)
+                    .expect("expected field not provided");
+                array_elements.push(value);
             }
 
-            PrintableValue::Vec(array_elements)
+            Some(PrintableValue::Vec(array_elements))
         }
         PrintableType::Array { length: Some(length), typ } => {
+            let size = size_iterator.next().expect("expected size not provided for type {typ:?}");
+            println!["  size={size}"];
             let length = *length as usize;
+            if length != size { panic!("array type has length={length} but size={size}") }
             let mut array_elements = Vec::with_capacity(length);
             for _ in 0..length {
-                array_elements.push(decode_value(field_iterator, typ));
+                let value = decode_value(field_iterator, size_iterator, typ)
+                    .expect("expected field not provided");
+                array_elements.push(value);
             }
 
-            PrintableValue::Vec(array_elements)
+            Some(PrintableValue::Vec(array_elements))
         }
         PrintableType::Tuple { types } => {
-            PrintableValue::Vec(vecmap(types, |typ| decode_value(field_iterator, typ)))
+            let size = size_iterator.next().expect("expected size not provided for type {typ:?}");
+            println!["  size={size}"];
+            if types.len() != size { panic!("tuple type has length={} but size={size}", types.len()) }
+            Some(PrintableValue::Vec(vecmap(types, |typ| {
+                decode_value(field_iterator, size_iterator, typ)
+                    .expect("expected field not provided")
+            })))
         }
         PrintableType::String { length } => {
+            let _size = size_iterator.next().expect("expected size not provided for type {typ:?}");
             let field_elements: Vec<FieldElement> = field_iterator.take(*length as usize).collect();
-
-            PrintableValue::String(decode_string_value(&field_elements))
+            Some(PrintableValue::String(decode_string_value(&field_elements)))
         }
         PrintableType::Struct { fields, .. } => {
+            /*
+            if fields.len() != size {
+                panic!("struct field length={} does not match size={size}", fields.len());
+            }
+            */
             let mut struct_map = BTreeMap::new();
 
             for (field_key, param_type) in fields {
-                let field_value = decode_value(field_iterator, param_type);
+                let field_value = decode_value(field_iterator, size_iterator, param_type)
+                    .expect("expected field not provided");
 
                 struct_map.insert(field_key.to_owned(), field_value);
             }
 
-            PrintableValue::Struct(struct_map)
+            Some(PrintableValue::Struct(struct_map))
         }
-        _ => PrintableValue::Other,
+        _ => Some(PrintableValue::Other),
     }
 }
 

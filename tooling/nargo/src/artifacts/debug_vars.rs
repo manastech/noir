@@ -46,16 +46,19 @@ impl DebugVars {
         });
     }
 
-    pub fn assign(&mut self, var_id: u32, values: &[Value]) {
+    pub fn assign(&mut self, var_id: u32, values: &[Value], sizes: &[usize]) {
         self.active.insert(var_id);
-        // TODO: assign values as PrintableValue
         let type_id = self.id_to_type.get(&var_id).unwrap();
         let ptype = self.types.get(type_id).unwrap();
-        self.id_to_value
-            .insert(var_id, decode_value(&mut values.iter().map(|v| v.to_field()), ptype));
+        let value = decode_value(
+            &mut values.iter().map(|v| v.to_field()),
+            &mut sizes.iter().map(|s| *s),
+            ptype
+        ).expect("not enough elements to decode value");
+        self.id_to_value.insert(var_id, value);
     }
 
-    pub fn assign_field(&mut self, var_id: u32, indexes: Vec<u32>, values: &[Value]) {
+    pub fn assign_field(&mut self, var_id: u32, indexes: Vec<u32>, values: &[Value], sizes: &[usize]) {
         let mut cursor: &mut PrintableValue = self
             .id_to_value
             .get_mut(&var_id)
@@ -109,11 +112,15 @@ impl DebugVars {
                 }
             };
         }
-        *cursor = decode_value(&mut values.iter().map(|v| v.to_field()), cursor_type);
+        *cursor = decode_value(
+            &mut values.iter().map(|v| v.to_field()),
+            &mut sizes.iter().map(|s| *s),
+            cursor_type
+        ).expect("not enough elements to decode value");
         self.active.insert(var_id);
     }
 
-    pub fn assign_deref(&mut self, _var_id: u32, _values: &[Value]) {
+    pub fn assign_deref(&mut self, _var_id: u32, _values: &[Value], _sizes: &[usize]) {
         // TODO
         unimplemented![]
     }

@@ -159,9 +159,13 @@ impl DefaultForeignCallExecutor {
                 if let (Some(ds), ForeignCallParam::Single(var_id_value)) = (debug_vars, fcp_var_id)
                 {
                     let var_id = var_id_value.to_u128() as u32;
+                    let sizes = input_sizes(foreign_call.inputs[1..].iter());
                     let values: Vec<Value> =
                         foreign_call.inputs[1..].iter().flat_map(|x| x.values()).collect();
-                    ds.assign(var_id, &values);
+                    println!["foreign_call.inputs={:?}", &foreign_call.inputs];
+                    println!["sizes={sizes:?}"];
+                    println!["values={values:?}"];
+                    ds.assign(var_id, &values, &sizes);
                 }
                 Ok(ForeignCallResult { values: vec![] })
             }
@@ -196,7 +200,12 @@ impl DefaultForeignCallExecutor {
                             foreign_call.inputs.get(1 + i).map(|fci| fci.values()).unwrap_or(vec![])
                         })
                         .collect();
-                    ds.assign_field(var_id, indexes, &values);
+                    let sizes: Vec<usize> = (0..n - 1 - arity)
+                        .map(|i| {
+                            foreign_call.inputs.get(1 + i).map(|fci| fci.values().len()).unwrap_or(0)
+                        })
+                        .collect();
+                    ds.assign_field(var_id, indexes, &values, &sizes);
                 }
                 Ok(ForeignCallResult { values: vec![] })
             }
@@ -206,7 +215,7 @@ impl DefaultForeignCallExecutor {
                 if let (Some(ds), ForeignCallParam::Single(var_id_value)) = (debug_vars, fcp_var_id)
                 {
                     let var_id = var_id_value.to_u128() as u32;
-                    ds.assign_deref(var_id, &fcp_value.values());
+                    ds.assign_deref(var_id, &fcp_value.values(), &[ fcp_value.values().len() ]);
                 }
                 Ok(ForeignCallResult { values: vec![] })
             }
@@ -349,4 +358,16 @@ impl ForeignCallExecutor for DefaultForeignCallExecutor {
     ) -> Result<ForeignCallResult, ForeignCallError> {
         self.execute_optional_debug_vars(foreign_call, Some(debug_vars))
     }
+}
+
+fn input_sizes(iter: &mut impl Iterator<Item=&ForeignCallParam>) -> Vec<usize> {
+    foreign_call.inputs[1..].iter().flat_map(|x| {
+        [
+            vec![x.values().len()],
+            match x {
+                ForeignCallParam::Single(_v) => vec![],
+                ForeignCallParam::Array(vs) => vs.iter().map(|_| 1).collect(),
+            }
+        ].concat()
+    }).collect()
 }
