@@ -103,6 +103,9 @@ pub(crate) fn generate_ssa(
             _ => unreachable!("ICE - expect return on the last block"),
         }
     }
+    // we save the data bus inside the dfg
+    function_context.builder.current_function.dfg.data_bus =
+        DataBus::get_data_bus(call_data, return_data);
 
     // Main has now been compiled and any other functions referenced within have been added to the
     // function queue as they were found in codegen_ident. This queueing will happen each time a
@@ -113,9 +116,6 @@ pub(crate) fn generate_ssa(
         function_context.new_function(dest_id, function);
         function_context.codegen_function_body(&function.body)?;
     }
-    // we save the data bus inside the dfg
-    function_context.builder.current_function.dfg.data_bus =
-        DataBus::get_data_bus(call_data, return_data);
 
     Ok(function_context.builder.finish())
 }
