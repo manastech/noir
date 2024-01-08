@@ -208,7 +208,7 @@ impl DebugState {
             arguments: [
                 vec![uint_expr(var_id as u128, none_span())],
                 vec![expr.clone()],
-                indexes.iter().rev().cloned().collect(),
+                indexes.iter().rev().map(|i| to_field(i)).collect(),
             ]
             .concat(),
         }));
@@ -603,6 +603,17 @@ fn sint_expr(x: i128) -> ast::Expression {
         kind: ast::ExpressionKind::Literal(ast::Literal::Integer(x.abs().into(), x < 0)),
         span: none_span(),
     }
+}
+
+fn to_field(expr: &ast::Expression) -> ast::Expression {
+    ast::Expression::cast(
+        expr.clone(),
+        ast::UnresolvedType {
+            typ: ast::UnresolvedTypeData::FieldElement,
+            span: None,
+        },
+        none_span(),
+    )
 }
 
 fn none_span() -> Span {
