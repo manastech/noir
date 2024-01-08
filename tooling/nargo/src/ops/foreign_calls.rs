@@ -3,7 +3,6 @@ use acvm::{
     acir::brillig::{ForeignCallParam, ForeignCallResult, Value},
     pwg::ForeignCallWaitInfo,
 };
-use iter_extended::vecmap;
 use noirc_printable_type::{decode_string_value, ForeignCallError, PrintableValueDisplay};
 
 pub trait ForeignCallExecutor {
@@ -26,8 +25,6 @@ pub(crate) enum ForeignCall {
     DebugVarDrop,
     DebugMemberAssign(u32),
     DebugDerefAssign,
-    Sequence,
-    ReverseSequence,
     Print,
     CreateMock,
     SetMockParams,
@@ -57,8 +54,6 @@ impl ForeignCall {
             ForeignCall::DebugMemberAssign(8) => "__debug_member_assign_8",
             ForeignCall::DebugMemberAssign(_) => panic!("unsupported member assignment arity"),
             ForeignCall::DebugDerefAssign => "__debug_deref_assign",
-            ForeignCall::Sequence => "get_number_sequence",
-            ForeignCall::ReverseSequence => "get_reverse_number_sequence",
             ForeignCall::Print => "print",
             ForeignCall::CreateMock => "create_mock",
             ForeignCall::SetMockParams => "set_mock_params",
@@ -79,8 +74,6 @@ impl ForeignCall {
             "__debug_var_assign" => Some(ForeignCall::DebugVarAssign),
             "__debug_var_drop" => Some(ForeignCall::DebugVarDrop),
             "__debug_deref_assign" => Some(ForeignCall::DebugDerefAssign),
-            "get_number_sequence" => Some(ForeignCall::Sequence),
-            "get_reverse_number_sequence" => Some(ForeignCall::ReverseSequence),
             "print" => Some(ForeignCall::Print),
             "create_mock" => Some(ForeignCall::CreateMock),
             "set_mock_params" => Some(ForeignCall::SetMockParams),
@@ -208,30 +201,6 @@ impl DefaultForeignCallExecutor {
                     ds.assign_deref(var_id, &fcp_value.values());
                 }
                 Ok(ForeignCallResult { values: vec![] })
-            }
-            Some(ForeignCall::Sequence) => {
-                let sequence_length: u128 =
-                    foreign_call.inputs[0].unwrap_value().to_field().to_u128();
-                let sequence = vecmap(0..sequence_length, Value::from);
-
-                Ok(ForeignCallResult {
-                    values: vec![
-                        ForeignCallParam::Single(sequence_length.into()),
-                        ForeignCallParam::Array(sequence),
-                    ],
-                })
-            }
-            Some(ForeignCall::ReverseSequence) => {
-                let sequence_length: u128 =
-                    foreign_call.inputs[0].unwrap_value().to_field().to_u128();
-                let sequence = vecmap((0..sequence_length).rev(), Value::from);
-
-                Ok(ForeignCallResult {
-                    values: vec![
-                        ForeignCallParam::Single(sequence_length.into()),
-                        ForeignCallParam::Array(sequence),
-                    ],
-                })
             }
             Some(ForeignCall::CreateMock) => {
                 let mock_oracle_name = Self::parse_string(&foreign_call.inputs[0]);
