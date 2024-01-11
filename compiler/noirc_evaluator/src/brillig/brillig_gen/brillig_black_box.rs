@@ -1,4 +1,7 @@
-use acvm::{acir::{brillig::BlackBoxOp, BlackBoxFunc}, brillig_vm::brillig::HeapValueType};
+use acvm::{
+    acir::{brillig::BlackBoxOp, BlackBoxFunc},
+    brillig_vm::brillig::HeapValueType,
+};
 
 use crate::brillig::brillig_ir::{
     brillig_variable::{BrilligVariable, BrilligVector},

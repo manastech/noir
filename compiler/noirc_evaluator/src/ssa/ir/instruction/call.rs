@@ -46,7 +46,8 @@ pub(super) fn simplify_call(
                 let field = constant_args[0];
                 let limb_count = constant_args[1].to_u128() as u32;
 
-                let (len_value, result_slice) = constant_to_radix(endian, field, 2, limb_count, dfg);
+                let (len_value, result_slice) =
+                    constant_to_radix(endian, field, 2, limb_count, dfg);
 
                 // `Intrinsic::ToBits` returns slices which are represented
                 // by tuples with the structure (length, slice contents)
@@ -61,7 +62,8 @@ pub(super) fn simplify_call(
                 let radix = constant_args[1].to_u128() as u32;
                 let limb_count = constant_args[2].to_u128() as u32;
 
-                let (len_value, result_slice) = constant_to_radix(endian, field, radix, limb_count, dfg);
+                let (len_value, result_slice) =
+                    constant_to_radix(endian, field, radix, limb_count, dfg);
 
                 // `Intrinsic::ToRadix` returns slices which are represented
                 // by tuples with the structure (length, slice contents)
@@ -432,7 +434,11 @@ fn make_constant_array(dfg: &mut DataFlowGraph, results: Vec<FieldElement>, typ:
     dfg.make_array(result_constants.into(), typ)
 }
 
-fn make_constant_slice(dfg: &mut DataFlowGraph, results: Vec<FieldElement>, typ: Type) -> (ValueId, ValueId) {
+fn make_constant_slice(
+    dfg: &mut DataFlowGraph,
+    results: Vec<FieldElement>,
+    typ: Type,
+) -> (ValueId, ValueId) {
     let result_constants = vecmap(results, |element| dfg.make_constant(element, typ.clone()));
 
     let typ = Type::Slice(Rc::new(vec![typ]));
