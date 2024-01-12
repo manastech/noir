@@ -277,7 +277,7 @@ impl<'a, B: BlackBoxFunctionSolver> VM<'a, B> {
                                     }
                                 }
                             } else {
-                                unimplemented!("unflattening heap arrays");
+                                unimplemented!("deflattening heap arrays from foreign calls");
                             }
                         }
                         RegisterOrMemory::HeapVector(HeapVector { pointer: pointer_index,
@@ -299,7 +299,7 @@ impl<'a, B: BlackBoxFunctionSolver> VM<'a, B> {
                                     }
                                 }
                             } else {
-                                unimplemented!("unflattening heap vectors");
+                                unimplemented!("deflattening heap vectors from foreign calls");
                             }
                         }
                     }
