@@ -1,12 +1,12 @@
 use nargo::{
-    artifacts::debug::DebugVars,
+    artifacts::debug::{DebugVars, DebugArtifact},
     ops::{ForeignCallExecutor, DefaultForeignCallExecutor},
 };
 use acvm::{
     acir::brillig::{ForeignCallParam, ForeignCallResult, Value},
     pwg::ForeignCallWaitInfo,
 };
-use noirc_printable_type::ForeignCallError;
+use noirc_printable_type::{ForeignCallError,PrintableType, PrintableValue};
 
 pub(crate) enum DebugForeignCall {
     VarAssign,
@@ -55,21 +55,44 @@ impl DebugForeignCall {
     }
 }
 
-pub(crate) struct DebugForeignCallExecutor {
+pub trait DebugForeignCallExecutor: ForeignCallExecutor {
+    fn get_variables(&self) -> Vec<(&str, &PrintableValue, &PrintableType)>;
+}
+
+pub struct DefaultDebugForeignCallExecutor {
     executor: DefaultForeignCallExecutor,
     pub debug_vars: DebugVars,
 }
 
-impl DebugForeignCallExecutor {
+impl DefaultDebugForeignCallExecutor {
     pub fn new(show_output: bool) -> Self {
         Self {
             executor: DefaultForeignCallExecutor::new(show_output),
             debug_vars: DebugVars::default(),
         }
     }
+
+    pub fn from_artifact(show_output: bool, artifact: &DebugArtifact) -> Self {
+        let mut ex = Self::new(show_output);
+        ex.load_artifact(artifact);
+        ex
+    }
+
+    pub fn load_artifact(&mut self, artifact: &DebugArtifact) {
+        artifact.debug_symbols.iter().for_each(|info| {
+            self.debug_vars.insert_variables(&info.variables);
+            self.debug_vars.insert_types(&info.types);
+        });
+    }
 }
 
-impl ForeignCallExecutor for DebugForeignCallExecutor {
+impl DebugForeignCallExecutor for DefaultDebugForeignCallExecutor {
+    fn get_variables(&self) -> Vec<(&str, &PrintableValue, &PrintableType)> {
+        self.debug_vars.get_variables()
+    }
+}
+
+impl ForeignCallExecutor for DefaultDebugForeignCallExecutor {
     fn execute(&mut self, foreign_call: &ForeignCallWaitInfo) -> Result<ForeignCallResult, ForeignCallError> {
         let foreign_call_name = foreign_call.function.as_str();
         match DebugForeignCall::lookup(foreign_call_name) {

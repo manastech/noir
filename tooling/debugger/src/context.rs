@@ -9,7 +9,7 @@ use crate::foreign_calls::DebugForeignCallExecutor;
 
 use nargo::artifacts::debug::DebugArtifact;
 use nargo::errors::{ExecutionError, Location};
-use nargo::{NargoError, ops::ForeignCallExecutor};
+use nargo::NargoError;
 use noirc_printable_type::{PrintableType, PrintableValue};
 
 use std::collections::{hash_set::Iter, HashSet};
@@ -25,7 +25,7 @@ pub(super) enum DebugCommandResult {
 pub(super) struct DebugContext<'a, B: BlackBoxFunctionSolver> {
     acvm: ACVM<'a, B>,
     brillig_solver: Option<BrilligSolver<'a, B>>,
-    foreign_call_executor: DebugForeignCallExecutor,
+    foreign_call_executor: Box<dyn DebugForeignCallExecutor + 'a>,
     debug_artifact: &'a DebugArtifact,
     breakpoints: HashSet<OpcodeLocation>,
 }
@@ -36,12 +36,8 @@ impl<'a, B: BlackBoxFunctionSolver> DebugContext<'a, B> {
         circuit: &'a Circuit,
         debug_artifact: &'a DebugArtifact,
         initial_witness: WitnessMap,
-        mut foreign_call_executor: DebugForeignCallExecutor,
+        foreign_call_executor: Box<dyn DebugForeignCallExecutor + 'a>,
     ) -> Self {
-        debug_artifact.debug_symbols.iter().for_each(|info| {
-            foreign_call_executor.debug_vars.insert_variables(&info.variables);
-            foreign_call_executor.debug_vars.insert_types(&info.types);
-        });
         Self {
             acvm: ACVM::new(blackbox_solver, &circuit.opcodes, initial_witness),
             brillig_solver: None,
@@ -475,7 +471,7 @@ impl<'a, B: BlackBoxFunctionSolver> DebugContext<'a, B> {
     }
 
     pub(super) fn get_variables(&self) -> Vec<(&str, &PrintableValue, &PrintableType)> {
-        return self.foreign_call_executor.debug_vars.get_variables();
+        return self.foreign_call_executor.get_variables();
     }
 
     fn breakpoint_reached(&self) -> bool {
@@ -551,7 +547,7 @@ mod tests {
         },
     };
     use nargo::artifacts::debug::DebugArtifact;
-    use crate::DebugForeignCallExecutor;
+    use crate::foreign_calls::{DebugForeignCallExecutor,DefaultDebugForegnCallExecutor};
     use std::collections::BTreeMap;
 
     struct StubbedSolver;
@@ -631,12 +627,15 @@ mod tests {
 
         let initial_witness = BTreeMap::from([(Witness(1), fe_1)]).into();
 
+        let mut foreign_call_executor = Box::new(
+            DefaultDebugForeignCallExecutor::from_artifact(true, &debug_artifact)
+        );
         let mut context = DebugContext::new(
             blackbox_solver,
             circuit,
             debug_artifact,
             initial_witness,
-            DebugForeignCallExecutor::new(true),
+            foreign_call_executor,
         );
 
         assert_eq!(context.get_current_opcode_location(), Some(OpcodeLocation::Acir(0)));
@@ -725,12 +724,15 @@ mod tests {
 
         let initial_witness = BTreeMap::from([(Witness(1), fe_1), (Witness(2), fe_1)]).into();
 
+        let foreign_call_executor = Box::new(
+            DefaultDebugForeignCallExecutor::from_artifact(true, &debug_artifact)
+        );
         let mut context = DebugContext::new(
             blackbox_solver,
             circuit,
             debug_artifact,
             initial_witness,
-            DebugForeignCallExecutor::new(true),
+            foreign_call_executor,
         );
 
         // set breakpoint
@@ -775,12 +777,15 @@ mod tests {
         let circuit = Circuit { opcodes, ..Circuit::default() };
         let debug_artifact =
             DebugArtifact { debug_symbols: vec![], file_map: BTreeMap::new(), warnings: vec![] };
+        let foreign_call_executor = Box::new(
+            DefaultDebugForeignCallExecutor::from_artifact(true, &debug_artifact)
+        );
         let context = DebugContext::new(
             blackbox_solver,
             &circuit,
             &debug_artifact,
             WitnessMap::new(),
-            DebugForeignCallExecutor::new(true),
+            foreign_call_executor,
         );
 
         assert_eq!(context.offset_opcode_location(&None, 0), (None, 0));
