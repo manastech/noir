@@ -26,7 +26,7 @@ use dap::types::{
     StoppedEventReason, Thread, Variable,
 };
 use nargo::artifacts::debug::DebugArtifact;
-use nargo::ops::DefaultForeignCallExecutor;
+use crate::foreign_calls::DebugForeignCallExecutor;
 
 use fm::FileId;
 use noirc_driver::CompiledProgram;
@@ -76,7 +76,7 @@ impl<'a, R: Read, W: Write, B: BlackBoxFunctionSolver> DapSession<'a, R, W, B> {
             circuit,
             debug_artifact,
             initial_witness,
-            Box::new(DefaultForeignCallExecutor::new(true)),
+            DebugForeignCallExecutor::new(true),
         );
         Self {
             server,
