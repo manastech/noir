@@ -534,7 +534,7 @@ mod tests {
     use super::*;
     use crate::context::{DebugCommandResult, DebugContext};
 
-    use crate::foreign_calls::{DebugForeignCallExecutor, DefaultDebugForegnCallExecutor};
+    use crate::foreign_calls::DefaultDebugForeignCallExecutor;
     use acvm::{
         acir::{
             circuit::{
@@ -588,7 +588,7 @@ mod tests {
 
         let initial_witness = BTreeMap::from([(Witness(1), fe_1)]).into();
 
-        let mut foreign_call_executor =
+        let foreign_call_executor =
             Box::new(DefaultDebugForeignCallExecutor::from_artifact(true, &debug_artifact));
         let mut context = DebugContext::new(
             &StubbedBlackBoxSolver,
@@ -738,7 +738,7 @@ mod tests {
             &circuit,
             &debug_artifact,
             WitnessMap::new(),
-            DefaultForeignCallExecutor::new(true, None),
+            Box::new(DefaultDebugForeignCallExecutor::new(true)),
         );
 
         assert_eq!(context.offset_opcode_location(&None, 0), (None, 0));
