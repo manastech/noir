@@ -1,6 +1,7 @@
 mod context;
 mod dap;
 mod repl;
+mod foreign_calls;
 
 use std::io::{Read, Write};
 
