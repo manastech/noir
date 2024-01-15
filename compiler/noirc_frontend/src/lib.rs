@@ -17,6 +17,7 @@ pub mod lexer;
 pub mod monomorphization;
 pub mod node_interner;
 pub mod parser;
+pub mod resolve_locations;
 
 pub mod hir;
 pub mod hir_def;

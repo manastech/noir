@@ -2,16 +2,17 @@ use fm::FileManager;
 use gloo_utils::format::JsValueSerdeExt;
 use js_sys::{JsString, Object};
 use nargo::artifacts::{
-    contract::{PreprocessedContract, PreprocessedContractFunction},
+    contract::{ContractArtifact, ContractFunctionArtifact},
     debug::DebugArtifact,
-    program::PreprocessedProgram,
+    program::ProgramArtifact,
 };
 use noirc_driver::{
-    add_dep, compile_contract, compile_main, prepare_crate, prepare_dependency, CompileOptions,
-    CompiledContract, CompiledProgram, NOIR_ARTIFACT_VERSION_STRING,
+    add_dep, compile_contract, compile_main, file_manager_with_stdlib, prepare_crate,
+    prepare_dependency, CompileOptions, CompiledContract, CompiledProgram,
+    NOIR_ARTIFACT_VERSION_STRING,
 };
 use noirc_frontend::{
-    graph::{CrateGraph, CrateId, CrateName},
+    graph::{CrateId, CrateName},
     hir::Context,
 };
 use serde::Deserialize;
@@ -19,8 +20,6 @@ use std::{collections::HashMap, path::Path};
 use wasm_bindgen::prelude::*;
 
 use crate::errors::{CompileError, JsCompileError};
-
-const BACKEND_IDENTIFIER: &str = "acvm-backend-barretenberg";
 
 #[wasm_bindgen(typescript_custom_section)]
 const DEPENDENCY_GRAPH: &'static str = r#"
@@ -32,14 +31,12 @@ export type DependencyGraph = {
 export type CompiledContract = {
     noir_version: string;
     name: string;
-    backend: string;
     functions: Array<any>;
     events: Array<any>;
 };
 
 export type CompiledProgram = {
     noir_version: string;
-    backend: string;
     abi: any;
     bytecode: string;
 }
@@ -120,12 +117,11 @@ impl JsCompileResult {
     }
 }
 
-#[derive(Deserialize)]
-struct DependencyGraph {
-    root_dependencies: Vec<CrateName>,
-    library_dependencies: HashMap<CrateName, Vec<CrateName>>,
+#[derive(Deserialize, Default)]
+pub(crate) struct DependencyGraph {
+    pub(crate) root_dependencies: Vec<CrateName>,
+    pub(crate) library_dependencies: HashMap<CrateName, Vec<CrateName>>,
 }
-
 #[wasm_bindgen]
 // This is a map containing the paths of all of the files in the entry-point crate and
 // the transitive dependencies of the entry-point crate.
@@ -133,7 +129,7 @@ struct DependencyGraph {
 // This is for all intents and purposes the file system that the compiler will use to resolve/compile
 // files in the crate being compiled and its dependencies.
 #[derive(Deserialize, Default)]
-pub struct PathToFileSourceMap(HashMap<std::path::PathBuf, String>);
+pub struct PathToFileSourceMap(pub(crate) HashMap<std::path::PathBuf, String>);
 
 #[wasm_bindgen]
 impl PathToFileSourceMap {
@@ -152,8 +148,8 @@ impl PathToFileSourceMap {
 }
 
 pub enum CompileResult {
-    Contract { contract: PreprocessedContract, debug: DebugArtifact },
-    Program { program: PreprocessedProgram, debug: DebugArtifact },
+    Contract { contract: ContractArtifact, debug: DebugArtifact },
+    Program { program: ProgramArtifact, debug: DebugArtifact },
 }
 
 #[wasm_bindgen]
@@ -174,8 +170,7 @@ pub fn compile(
 
     let fm = file_manager_with_source_map(file_source_map);
 
-    let graph = CrateGraph::default();
-    let mut context = Context::new(fm, graph);
+    let mut context = Context::new(fm);
 
     let path = Path::new(&entry_point);
     let crate_id = prepare_crate(&mut context, path);
@@ -184,10 +179,8 @@ pub fn compile(
 
     let compile_options = CompileOptions::default();
 
-    // For now we default to plonk width = 3, though we can add it as a parameter
-    let np_language = acvm::Language::PLONKCSat { width: 3 };
-    #[allow(deprecated)]
-    let is_opcode_supported = acvm::pwg::default_is_opcode_supported(np_language);
+    // For now we default to a bounded width of 3, though we can add it as a parameter
+    let expression_width = acvm::ExpressionWidth::Bounded { width: 3 };
 
     if contracts.unwrap_or_default() {
         let compiled_contract = compile_contract(&mut context, crate_id, &compile_options)
@@ -200,11 +193,9 @@ pub fn compile(
             })?
             .0;
 
-        let optimized_contract =
-            nargo::ops::optimize_contract(compiled_contract, np_language, &is_opcode_supported)
-                .expect("Contract optimization failed");
+        let optimized_contract = nargo::ops::optimize_contract(compiled_contract, expression_width);
 
-        let compile_output = preprocess_contract(optimized_contract);
+        let compile_output = generate_contract_artifact(optimized_contract);
         Ok(JsCompileResult::new(compile_output))
     } else {
         let compiled_program = compile_main(&mut context, crate_id, &compile_options, None, true)
@@ -217,11 +208,9 @@ pub fn compile(
             })?
             .0;
 
-        let optimized_program =
-            nargo::ops::optimize_program(compiled_program, np_language, &is_opcode_supported)
-                .expect("Program optimization failed");
+        let optimized_program = nargo::ops::optimize_program(compiled_program, expression_width);
 
-        let compile_output = preprocess_program(optimized_program);
+        let compile_output = generate_program_artifact(optimized_program);
         Ok(JsCompileResult::new(compile_output))
     }
 }
@@ -234,9 +223,9 @@ pub fn compile(
 //
 // For all intents and purposes, the file manager being returned
 // should be considered as immutable.
-fn file_manager_with_source_map(source_map: PathToFileSourceMap) -> FileManager {
+pub(crate) fn file_manager_with_source_map(source_map: PathToFileSourceMap) -> FileManager {
     let root = Path::new("");
-    let mut fm = FileManager::new(root);
+    let mut fm = file_manager_with_stdlib(root);
 
     for (path, source) in source_map.0 {
         fm.add_file_with_source(path.as_path(), source);
@@ -283,73 +272,50 @@ fn add_noir_lib(context: &mut Context, library_name: &CrateName) -> CrateId {
     prepare_dependency(context, &path_to_lib)
 }
 
-fn preprocess_program(program: CompiledProgram) -> CompileResult {
+pub(crate) fn generate_program_artifact(program: CompiledProgram) -> CompileResult {
     let debug_artifact = DebugArtifact {
-        debug_symbols: vec![program.debug],
-        file_map: program.file_map,
-        warnings: program.warnings,
+        debug_symbols: vec![program.debug.clone()],
+        file_map: program.file_map.clone(),
+        warnings: program.warnings.clone(),
     };
 
-    let preprocessed_program = PreprocessedProgram {
-        hash: program.hash,
-        backend: String::from(BACKEND_IDENTIFIER),
-        abi: program.abi,
-        noir_version: NOIR_ARTIFACT_VERSION_STRING.to_string(),
-        bytecode: program.circuit,
-    };
-
-    CompileResult::Program { program: preprocessed_program, debug: debug_artifact }
+    CompileResult::Program { program: program.into(), debug: debug_artifact }
 }
 
-fn preprocess_contract(contract: CompiledContract) -> CompileResult {
+pub(crate) fn generate_contract_artifact(contract: CompiledContract) -> CompileResult {
     let debug_artifact = DebugArtifact {
         debug_symbols: contract.functions.iter().map(|function| function.debug.clone()).collect(),
         file_map: contract.file_map,
         warnings: contract.warnings,
     };
-    let preprocessed_functions = contract
-        .functions
-        .into_iter()
-        .map(|func| PreprocessedContractFunction {
-            name: func.name,
-            function_type: func.function_type,
-            is_internal: func.is_internal,
-            abi: func.abi,
-            bytecode: func.bytecode,
-        })
-        .collect();
+    let functions = contract.functions.into_iter().map(ContractFunctionArtifact::from).collect();
 
-    let preprocessed_contract = PreprocessedContract {
+    let contract_artifact = ContractArtifact {
         noir_version: String::from(NOIR_ARTIFACT_VERSION_STRING),
         name: contract.name,
-        backend: String::from(BACKEND_IDENTIFIER),
-        functions: preprocessed_functions,
+        functions,
         events: contract.events,
     };
 
-    CompileResult::Contract { contract: preprocessed_contract, debug: debug_artifact }
+    CompileResult::Contract { contract: contract_artifact, debug: debug_artifact }
 }
 
 #[cfg(test)]
 mod test {
     use noirc_driver::prepare_crate;
-    use noirc_frontend::{
-        graph::{CrateGraph, CrateName},
-        hir::Context,
-    };
+    use noirc_frontend::{graph::CrateName, hir::Context};
 
     use crate::compile::PathToFileSourceMap;
 
     use super::{file_manager_with_source_map, process_dependency_graph, DependencyGraph};
     use std::{collections::HashMap, path::Path};
 
-    fn setup_test_context(source_map: PathToFileSourceMap) -> Context {
+    fn setup_test_context(source_map: PathToFileSourceMap) -> Context<'static> {
         let mut fm = file_manager_with_source_map(source_map);
         // Add this due to us calling prepare_crate on "/main.nr" below
         fm.add_file_with_source(Path::new("/main.nr"), "fn foo() {}".to_string());
 
-        let graph = CrateGraph::default();
-        let mut context = Context::new(fm, graph);
+        let mut context = Context::new(fm);
         prepare_crate(&mut context, Path::new("/main.nr"));
 
         context

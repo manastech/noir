@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-var-requires */
 import type { Config } from '@docusaurus/types';
 
 const { themes } = require('prism-react-renderer');
@@ -40,13 +41,16 @@ export default {
         },
         blog: false,
         theme: {
-          customCss: './src/css/custom.css',
+          customCss: ['./src/css/custom.css', './src/css/sidebar.css'],
         },
       },
     ],
   ],
 
   themeConfig: {
+    colorMode: {
+      respectPrefersColorScheme: true,
+    },
     navbar: {
       logo: {
         alt: 'Noir Logo',
@@ -112,7 +116,7 @@ export default {
     prism: {
       theme: lightTheme,
       darkTheme: darkTheme,
-      additionalLanguages: ['rust', 'powershell', 'solidity', 'toml'],
+      additionalLanguages: ['rust', 'powershell', 'solidity', 'toml', 'json', 'bash', 'docker'],
     },
     stylesheets: [
       {

@@ -1,12 +1,12 @@
-use nargo::{
-    artifacts::debug::{DebugVars, DebugArtifact},
-    ops::{ForeignCallExecutor, DefaultForeignCallExecutor},
-};
 use acvm::{
     acir::brillig::{ForeignCallParam, ForeignCallResult, Value},
     pwg::ForeignCallWaitInfo,
 };
-use noirc_printable_type::{ForeignCallError,PrintableType, PrintableValue};
+use nargo::{
+    artifacts::debug::{DebugArtifact, DebugVars},
+    ops::{DefaultForeignCallExecutor, ForeignCallExecutor},
+};
+use noirc_printable_type::{ForeignCallError, PrintableType, PrintableValue};
 
 pub(crate) enum DebugForeignCall {
     VarAssign,
@@ -50,7 +50,7 @@ impl DebugForeignCall {
             "__debug_var_assign" => Some(DebugForeignCall::VarAssign),
             "__debug_var_drop" => Some(DebugForeignCall::VarDrop),
             "__debug_deref_assign" => Some(DebugForeignCall::DerefAssign),
-            _ => None
+            _ => None,
         }
     }
 }
@@ -67,7 +67,7 @@ pub struct DefaultDebugForeignCallExecutor {
 impl DefaultDebugForeignCallExecutor {
     pub fn new(show_output: bool) -> Self {
         Self {
-            executor: DefaultForeignCallExecutor::new(show_output),
+            executor: DefaultForeignCallExecutor::new(show_output, None),
             debug_vars: DebugVars::default(),
         }
     }
@@ -93,7 +93,10 @@ impl DebugForeignCallExecutor for DefaultDebugForeignCallExecutor {
 }
 
 impl ForeignCallExecutor for DefaultDebugForeignCallExecutor {
-    fn execute(&mut self, foreign_call: &ForeignCallWaitInfo) -> Result<ForeignCallResult, ForeignCallError> {
+    fn execute(
+        &mut self,
+        foreign_call: &ForeignCallWaitInfo,
+    ) -> Result<ForeignCallResult, ForeignCallError> {
         let foreign_call_name = foreign_call.function.as_str();
         match DebugForeignCall::lookup(foreign_call_name) {
             Some(DebugForeignCall::VarAssign) => {
@@ -147,9 +150,7 @@ impl ForeignCallExecutor for DefaultDebugForeignCallExecutor {
                 }
                 Ok(ForeignCallResult { values: vec![] })
             }
-            None => {
-                self.executor.execute(foreign_call)
-            }
+            None => self.executor.execute(foreign_call),
         }
     }
 }

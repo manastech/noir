@@ -11,6 +11,7 @@ use codespan_reporting::files::{Files, SimpleFile};
 use crate::context::DebugCommandResult;
 use crate::context::DebugContext;
 
+use crate::foreign_calls::DefaultDebugForeignCallExecutor;
 use dap::errors::ServerError;
 use dap::events::StoppedEventBody;
 use dap::prelude::Event;
@@ -26,7 +27,6 @@ use dap::types::{
     StoppedEventReason, Thread, Variable,
 };
 use nargo::artifacts::debug::DebugArtifact;
-use crate::foreign_calls::DefaultDebugForeignCallExecutor;
 
 use fm::FileId;
 use noirc_driver::CompiledProgram;
@@ -71,7 +71,8 @@ impl<'a, R: Read, W: Write, B: BlackBoxFunctionSolver> DapSession<'a, R, W, B> {
         initial_witness: WitnessMap,
     ) -> Self {
         let source_to_opcodes = Self::build_source_to_opcode_debug_mappings(debug_artifact);
-        let foreign_call_executor = Box::new(DefaultDebugForeignCallExecutor::from_artifact(true, debug_artifact));
+        let foreign_call_executor =
+            Box::new(DefaultDebugForeignCallExecutor::from_artifact(true, debug_artifact));
         let context = DebugContext::new(
             solver,
             circuit,

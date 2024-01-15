@@ -4,7 +4,7 @@
 #![warn(clippy::semicolon_if_nothing_returned)]
 
 use clap::Args;
-use fm::FileId;
+use fm::{FileId, FileManager};
 use iter_extended::vecmap;
 use noirc_abi::{AbiParameter, AbiType, ContractEvent};
 use noirc_errors::{CustomDiagnostic, FileDiagnostic};
@@ -19,6 +19,7 @@ use noirc_frontend::monomorphization::{monomorphize, monomorphize_debug};
 use noirc_frontend::node_interner::FuncId;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
+use tracing::info;
 
 mod abi_gen;
 mod contract;
@@ -91,17 +92,40 @@ pub type ErrorsAndWarnings = Vec<FileDiagnostic>;
 /// Helper type for connecting a compilation artifact to the errors or warnings which were produced during compilation.
 pub type CompilationResult<T> = Result<(T, Warnings), ErrorsAndWarnings>;
 
-/// Adds the file from the file system at `Path` to the crate graph as a root file
-pub fn prepare_crate(context: &mut Context, file_name: &Path) -> CrateId {
+/// Helper method to return a file manager instance with the stdlib already added
+///
+/// TODO: This should become the canonical way to create a file manager and
+/// TODO if we use a File manager trait, we can move file manager into this crate
+/// TODO as a module
+pub fn file_manager_with_stdlib(root: &Path) -> FileManager {
+    let mut file_manager = FileManager::new(root);
+
+    add_stdlib_source_to_file_manager(&mut file_manager);
+
+    file_manager
+}
+
+/// Adds the source code for the stdlib into the file manager
+fn add_stdlib_source_to_file_manager(file_manager: &mut FileManager) {
     // Add the stdlib contents to the file manager, since every package automatically has a dependency
     // on the stdlib. For other dependencies, we read the package.Dependencies file to add their file
     // contents to the file manager. However since the dependency on the stdlib is implicit, we need
     // to manually add it here.
     let stdlib_paths_with_source = stdlib::stdlib_paths_with_source();
     for (path, source) in stdlib_paths_with_source {
-        context.file_manager.add_file_with_source_canonical_path(Path::new(&path), source);
+        file_manager.add_file_with_source_canonical_path(Path::new(&path), source);
     }
 
+    // Adds the synthetic debug module for instrumentation into the file manager
+    let path_to_debug_lib_file = Path::new(DEBUG_CRATE_NAME).join("lib.nr");
+    file_manager.add_file_with_contents(&path_to_debug_lib_file, &create_prologue_program(8));
+}
+
+/// Adds the file from the file system at `Path` to the crate graph as a root file
+///
+/// Note: This methods adds the stdlib as a dependency to the crate.
+/// This assumes that the stdlib has already been added to the file manager.
+pub fn prepare_crate(context: &mut Context, file_name: &Path) -> CrateId {
     let path_to_std_lib_file = Path::new(STD_CRATE_NAME).join("lib.nr");
     let std_file_id = context
         .file_manager
@@ -112,8 +136,8 @@ pub fn prepare_crate(context: &mut Context, file_name: &Path) -> CrateId {
     let path_to_debug_lib_file = Path::new(DEBUG_CRATE_NAME).join("lib.nr");
     let debug_file_id = context
         .file_manager
-        .add_file_with_contents(&path_to_debug_lib_file, &create_prologue_program(8))
-        .unwrap();
+        .name_to_id(path_to_debug_lib_file)
+        .expect("debug module is expected to be present");
     let debug_crate_id = context.crate_graph.add_crate(debug_file_id);
 
     let root_file_id = context.file_manager.name_to_id(file_name.to_path_buf()).unwrap_or_else(|| panic!("files are expected to be added to the FileManager before reaching the compiler file_path: {file_name:?}"));
@@ -159,6 +183,7 @@ pub fn add_dep(
 ///
 /// This returns a (possibly empty) vector of any warnings found on success.
 /// On error, this returns a non-empty vector of warnings and error messages, with at least one error.
+#[tracing::instrument(level = "trace", skip(context))]
 pub fn check_crate(
     context: &mut Context,
     crate_id: CrateId,
@@ -372,6 +397,7 @@ fn compile_contract_inner(
 /// Compile the current crate using `main_function` as the entrypoint.
 ///
 /// This function assumes [`check_crate`] is called beforehand.
+#[tracing::instrument(level = "trace", skip_all, fields(function_name = context.function_name(&main_function)))]
 pub fn compile_no_check(
     context: &mut Context,
     options: &CompileOptions,
@@ -398,6 +424,7 @@ pub fn compile_no_check(
         force_compile || options.print_acir || options.show_brillig || options.show_ssa;
 
     if !force_compile && hashes_match {
+        info!("Program matches existing artifact, returning early");
         return Ok(cached_program.expect("cache must exist for hashes to match"));
     }
     let visibility = program.return_visibility;
