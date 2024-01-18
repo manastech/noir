@@ -32,41 +32,13 @@ pub enum PrintableType {
     String {
         length: u64,
     },
-    FmtString {},
-    Error {},
-    Unit {},
-    Constant {},
-    TraitAsType {},
-    TypeVariable {},
-    NamedGeneric {},
-    Forall {},
-    Function,
-    MutableReference {},
-    NotConstant {},
-}
-
-impl PrintableType {
-    /// Returns the number of field elements required to represent the type once encoded.
-    pub fn field_count(&self) -> Option<u32> {
-        match self {
-            Self::Field
-            | Self::SignedInteger { .. }
-            | Self::UnsignedInteger { .. }
-            | Self::Boolean
-            | Self::Function => Some(1),
-            Self::Array { length, typ } => {
-                length.and_then(|len| typ.field_count().map(|x| x * (len as u32)))
-            }
-            Self::Tuple { types } => types
-                .iter()
-                .fold(Some(0), |count, typ| count.and_then(|c| typ.field_count().map(|fc| c + fc))),
-            Self::Struct { fields, .. } => fields.iter().fold(Some(0), |count, (_, field_type)| {
-                count.and_then(|c| field_type.field_count().map(|fc| c + fc))
-            }),
-            Self::String { length } => Some(*length as u32),
-            _ => Some(0),
-        }
-    }
+    Function {
+        env: Box<PrintableType>,
+    },
+    MutableReference {
+        typ: Box<PrintableType>,
+    },
+    Unit,
 }
 
 /// This is what all formats eventually transform into
@@ -136,47 +108,26 @@ fn convert_string_inputs(
 fn convert_fmt_string_inputs(
     foreign_call_inputs: &[ForeignCallParam],
 ) -> Result<PrintableValueDisplay, ForeignCallError> {
-    let (message, input_and_printable_values) =
+    let (message, input_and_printable_types) =
         foreign_call_inputs.split_first().ok_or(ForeignCallError::MissingForeignCallInputs)?;
 
     let message_as_fields = vecmap(message.values(), |value| value.to_field());
     let message_as_string = decode_string_value(&message_as_fields);
 
-    let (num_values, input_and_printable_values) = input_and_printable_values
+    let (num_values, input_and_printable_types) = input_and_printable_types
         .split_first()
         .ok_or(ForeignCallError::MissingForeignCallInputs)?;
 
     let mut output = Vec::new();
     let num_values = num_values.unwrap_value().to_field().to_u128() as usize;
 
-    for (i, printable_value) in input_and_printable_values
+    let types_start_at = input_and_printable_types.len() - num_values;
+    let mut input_iter = input_and_printable_types[0..types_start_at]
         .iter()
-        .skip(input_and_printable_values.len() - num_values)
-        .enumerate()
-    {
-        let printable_type = fetch_printable_type(printable_value)?;
-        let field_count = printable_type.field_count();
-        let value = match (field_count, &printable_type) {
-            (_, PrintableType::Array { .. } | PrintableType::String { .. }) => {
-                // Arrays and strings are represented in a single value vector rather than multiple separate input values
-                let mut input_values_as_fields = input_and_printable_values[i]
-                    .values()
-                    .into_iter()
-                    .map(|value| value.to_field());
-                decode_value(&mut input_values_as_fields, &printable_type)
-            }
-            (Some(type_size), _) => {
-                // We must use a flat map here as each value in a struct will be in a separate input value
-                let mut input_values_as_fields = input_and_printable_values
-                    [i..(i + (type_size as usize))]
-                    .iter()
-                    .flat_map(|param| vecmap(param.values(), |value| value.to_field()));
-                decode_value(&mut input_values_as_fields, &printable_type)
-            }
-            (None, _) => {
-                panic!("unexpected None field_count for type {printable_type:?}");
-            }
-        };
+        .flat_map(|param| vecmap(param.values(), |value| value.to_field()));
+    for printable_type in input_and_printable_types.iter().skip(types_start_at) {
+        let printable_type = fetch_printable_type(printable_type)?;
+        let value = decode_value(&mut input_iter, &printable_type);
 
         output.push((value, printable_type));
     }
@@ -222,7 +173,7 @@ fn to_string(value: &PrintableValue, typ: &PrintableType) -> Option<String> {
                 output.push_str("false");
             }
         }
-        (PrintableValue::Field(_), PrintableType::Function) => {
+        (PrintableValue::Field(_), PrintableType::Function { .. }) => {
             output.push_str("<<function>>");
         }
         (_, PrintableType::MutableReference { .. }) => {
@@ -278,6 +229,8 @@ fn to_string(value: &PrintableValue, typ: &PrintableType) -> Option<String> {
             }
             output.push(')');
         }
+
+        (_, PrintableType::Unit) => output.push_str("()"),
 
         _ => return None,
     };
@@ -349,14 +302,12 @@ pub fn decode_value(
         PrintableType::Field
         | PrintableType::SignedInteger { .. }
         | PrintableType::UnsignedInteger { .. }
-        | PrintableType::Boolean
-        | PrintableType::Function => {
+        | PrintableType::Boolean => {
             let field_element = field_iterator.next().unwrap();
 
             PrintableValue::Field(field_element)
         }
         PrintableType::Array { length: None, typ } => {
-            // TODO: maybe the len is the first arg? not sure
             let length = field_iterator
                 .next()
                 .expect("not enough data to decode variable array length")
@@ -396,7 +347,18 @@ pub fn decode_value(
 
             PrintableValue::Struct(struct_map)
         }
-        _ => PrintableValue::Other,
+        PrintableType::Function { env } => {
+            let field_element = field_iterator.next().unwrap();
+            let func_ref = PrintableValue::Field(field_element);
+            // we want to consume the fields from the environment, but for now they are not actually printed
+            decode_value(field_iterator, env);
+            func_ref
+        }
+        PrintableType::MutableReference { typ } => {
+            // we decode the reference, but it's not really used for printing
+            decode_value(field_iterator, typ)
+        }
+        PrintableType::Unit => PrintableValue::Field(FieldElement::zero()),
     }
 }
 

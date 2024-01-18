@@ -2,14 +2,25 @@ use acvm::acir::circuit::OpcodeLocation;
 use acvm::compiler::AcirTransformationMap;
 use fm::FileId;
 
+use base64::Engine;
+use flate2::read::DeflateDecoder;
+use flate2::write::DeflateEncoder;
+use flate2::Compression;
+use serde::Deserializer;
+use serde::Serializer;
 use serde_with::serde_as;
 use serde_with::DisplayFromStr;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
+use std::collections::HashMap;
+use std::io::Read;
+use std::io::Write;
 use std::mem;
 
 use crate::Location;
 use noirc_printable_type::PrintableType;
-use serde::{Deserialize, Serialize};
+use serde::{
+    de::Error as DeserializationError, ser::Error as SerializationError, Deserialize, Serialize,
+};
 
 pub type Variables = Vec<(u32, (String, u32))>;
 pub type Types = Vec<(u32, PrintableType)>;
@@ -106,5 +117,41 @@ impl DebugInfo {
             .values()
             .filter_map(|call_stack| call_stack.last().map(|location| location.file))
             .collect()
+    }
+
+    pub fn serialize_compressed_base64_json<S>(
+        debug_info: &DebugInfo,
+        s: S,
+    ) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let json_str = serde_json::to_string(debug_info).map_err(S::Error::custom)?;
+
+        let mut encoder = DeflateEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(json_str.as_bytes()).map_err(S::Error::custom)?;
+        let compressed_data = encoder.finish().map_err(S::Error::custom)?;
+
+        let encoded_b64 = base64::prelude::BASE64_STANDARD.encode(compressed_data);
+        s.serialize_str(&encoded_b64)
+    }
+
+    pub fn deserialize_compressed_base64_json<'de, D>(
+        deserializer: D,
+    ) -> Result<DebugInfo, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let encoded_b64: String = Deserialize::deserialize(deserializer)?;
+
+        let compressed_data =
+            base64::prelude::BASE64_STANDARD.decode(encoded_b64).map_err(D::Error::custom)?;
+
+        let mut decoder = DeflateDecoder::new(&compressed_data[..]);
+        let mut decompressed_data = Vec::new();
+        decoder.read_to_end(&mut decompressed_data).map_err(D::Error::custom)?;
+
+        let json_str = String::from_utf8(decompressed_data).map_err(D::Error::custom)?;
+        serde_json::from_str(&json_str).map_err(D::Error::custom)
     }
 }

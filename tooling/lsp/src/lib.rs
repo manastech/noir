@@ -19,7 +19,7 @@ use async_lsp::{
 };
 use fm::codespan_files as files;
 use lsp_types::CodeLens;
-use nargo::workspace::Workspace;
+use nargo::{parse_all, workspace::Workspace};
 use nargo_toml::{find_file_manifest, resolve_workspace_from_toml, PackageSelection};
 use noirc_driver::{file_manager_with_stdlib, prepare_crate, NOIR_ARTIFACT_VERSION_STRING};
 use noirc_frontend::{
@@ -34,7 +34,8 @@ use notifications::{
 };
 use requests::{
     on_code_lens_request, on_formatting, on_goto_declaration_request, on_goto_definition_request,
-    on_initialize, on_profile_run_request, on_shutdown, on_test_run_request, on_tests_request,
+    on_goto_type_definition_request, on_initialize, on_profile_run_request, on_shutdown,
+    on_test_run_request, on_tests_request,
 };
 use serde_json::Value as JsonValue;
 use thiserror::Error;
@@ -98,6 +99,7 @@ impl NargoLspService {
             .request::<request::NargoProfileRun, _>(on_profile_run_request)
             .request::<request::GotoDefinition, _>(on_goto_definition_request)
             .request::<request::GotoDeclaration, _>(on_goto_declaration_request)
+            .request::<request::GotoTypeDefinition, _>(on_goto_type_definition_request)
             .notification::<notification::Initialized>(on_initialized)
             .notification::<notification::DidChangeConfiguration>(on_did_change_configuration)
             .notification::<notification::DidOpenTextDocument>(on_did_open_text_document)
@@ -152,10 +154,10 @@ fn get_package_tests_in_crate(
         .map(|(func_name, test_function)| {
             let location = context.function_meta(&test_function.get_id()).name.location;
             let file_id = location.file;
-
+            let file_path = fm.path(file_id).expect("file must exist to contain tests");
             let range =
                 byte_span_to_range(files, file_id, location.span.into()).unwrap_or_default();
-            let file_uri = Url::from_file_path(fm.path(file_id))
+            let file_uri = Url::from_file_path(file_path)
                 .expect("Expected a valid file path that can be converted into a URI");
 
             NargoTest {
@@ -225,15 +227,16 @@ pub(crate) fn resolve_workspace_for_source_path(file_path: &Path) -> Result<Work
 /// Use case for this is the LSP server and code lenses
 /// which operate on single file and need to understand this file
 /// in order to offer code lenses to the user
-fn prepare_source(source: String) -> (Context<'static>, CrateId) {
+fn prepare_source(source: String) -> (Context<'static, 'static>, CrateId) {
     let root = Path::new("");
     let file_name = Path::new("main.nr");
     let mut file_manager = file_manager_with_stdlib(root);
     file_manager.add_file_with_source(file_name, source).expect(
         "Adding source buffer to file manager should never fail when file manager is empty",
     );
+    let parsed_files = parse_all(&file_manager);
 
-    let mut context = Context::new(file_manager);
+    let mut context = Context::new(file_manager, parsed_files);
     let root_crate_id = prepare_crate(&mut context, file_name);
 
     (context, root_crate_id)

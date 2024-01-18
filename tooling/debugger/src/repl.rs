@@ -252,7 +252,7 @@ impl<'a, B: BlackBoxFunctionSolver> ReplDebugger<'a, B> {
         let breakpoints: Vec<OpcodeLocation> =
             self.context.iterate_breakpoints().copied().collect();
         let foreign_call_executor =
-            Box::new(DefaultDebugForeignCallExecutor::from_artifact(true, &self.debug_artifact));
+            Box::new(DefaultDebugForeignCallExecutor::from_artifact(true, self.debug_artifact));
         self.context = DebugContext::new(
             self.blackbox_solver,
             self.circuit,
