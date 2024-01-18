@@ -1,5 +1,6 @@
 mod context;
 mod dap;
+pub mod errors;
 mod repl;
 
 use std::io::{Read, Write};

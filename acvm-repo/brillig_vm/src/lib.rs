@@ -1393,13 +1393,11 @@ mod tests {
             Opcode::ForeignCall {
                 function: "flat_sum".into(),
                 destinations: vec![RegisterOrMemory::RegisterIndex(r_output)],
-                inputs: vec![
-                    RegisterOrMemory::HeapArray(HeapArray {
-                        pointer: r_input,
-                        size: outer_array.len(),
-                        value_types: input_array_value_types,
-                    }),
-                ],
+                inputs: vec![RegisterOrMemory::HeapArray(HeapArray {
+                    pointer: r_input,
+                    size: outer_array.len(),
+                    value_types: input_array_value_types,
+                })],
             },
         ];
 
@@ -1410,21 +1408,19 @@ mod tests {
             vm.status,
             VMStatus::ForeignCallWait {
                 function: "flat_sum".into(),
-                inputs: vec![
-                    ForeignCallParam::Array(vec![
-                        Value::from(1u128),
-                        Value::from(2u128), // size of following vector
-                        Value::from(2u128),
-                        Value::from(3u128),
-                        Value::from(4u128),
-                        Value::from(5u128),
-                        Value::from(3u128), // size of following vector
-                        Value::from(6u128),
-                        Value::from(7u128),
-                        Value::from(8u128),
-                        Value::from(9u128),
-                    ])
-                ],
+                inputs: vec![ForeignCallParam::Array(vec![
+                    Value::from(1u128),
+                    Value::from(2u128), // size of following vector
+                    Value::from(2u128),
+                    Value::from(3u128),
+                    Value::from(4u128),
+                    Value::from(5u128),
+                    Value::from(3u128), // size of following vector
+                    Value::from(6u128),
+                    Value::from(7u128),
+                    Value::from(8u128),
+                    Value::from(9u128),
+                ])],
             }
         );
 
