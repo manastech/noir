@@ -41,10 +41,10 @@ pub(crate) struct DapCommand {
     preflight_prover_name: Option<String>,
 
     #[clap(long)]
-    preflight_generate_acir: Option<bool>,
+    preflight_generate_acir: bool,
 
     #[clap(long)]
-    preflight_skip_instrumentation: Option<bool>,
+    preflight_skip_instrumentation: bool,
 }
 
 fn find_workspace(project_folder: &str, package: Option<&str>) -> Option<Workspace> {
@@ -110,7 +110,11 @@ fn load_and_compile_project(
 
     let (inputs_map, _) =
         read_inputs_from_file(&package.root_dir, prover_name, Format::Toml, &compiled_program.abi)
-            .map_err(|_| LoadError::Generic("Failed to read program inputs".into()))?;
+            .map_err(|_| {
+                LoadError::Generic(
+                    format!("Failed to read program inputs from {}", prover_name),
+                )
+            })?;
     let initial_witness = compiled_program
         .abi
         .encode(&inputs_map, None)
@@ -221,16 +225,13 @@ fn run_preflight_check(backend: &Backend, args: DapCommand) -> Result<(), DapErr
     let package = args.preflight_package.as_deref();
     let prover_name = args.preflight_prover_name.as_deref().unwrap_or(PROVER_INPUT_FILE);
 
-    let generate_acir = args.preflight_generate_acir.unwrap_or(false);
-    let skip_instrumentation = args.preflight_skip_instrumentation.unwrap_or(false);
-
     let _ = load_and_compile_project(
         backend,
         project_folder.as_str(),
         package,
         prover_name,
-        generate_acir,
-        skip_instrumentation,
+        args.preflight_generate_acir,
+        args.preflight_skip_instrumentation,
     )?;
 
     Ok(())
