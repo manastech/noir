@@ -84,6 +84,8 @@ struct Monomorphizer<'interner> {
 
     debug_types: DebugTypes,
     debug_field_names: HashMap<u32, String>,
+
+    current_function_id: Option<node_interner::FuncId>,
 }
 
 type HirType = crate::Type;
@@ -164,6 +166,7 @@ impl<'interner> Monomorphizer<'interner> {
             return_location: None,
             debug_types: DebugTypes::default(),
             debug_field_names: HashMap::default(),
+            current_function_id: None,
         }
     }
 
@@ -265,6 +268,8 @@ impl<'interner> Monomorphizer<'interner> {
     }
 
     fn function(&mut self, f: node_interner::FuncId, id: FuncId) {
+        self.current_function_id = Some(f);
+
         if let Some((self_type, trait_id)) = self.interner.get_function_trait(&f) {
             let the_trait = self.interner.get_trait(trait_id);
             the_trait.self_type_typevar.force_bind(self_type);
@@ -995,6 +1000,25 @@ impl<'interner> Monomorphizer<'interner> {
                     arguments[0] = self.expr(interned_var_id);
                 }
             } else if let (
+                Some(HirExpression::Literal(HirLiteral::Integer(fe_fn_id, _))),
+                true
+            ) = (hir_arguments.get(0), name == "__debug_fn_enter")
+            {
+                let func_id = self.current_function_id.expect("current function not set");
+                let fe_fn_id = fe_fn_id.to_u128() as u32;
+                let fn_meta = self.interner.function_meta(&func_id);
+                let fn_name = self.interner.definition(fn_meta.name.id).name.clone();
+                let ptype = PrintableType::Function {
+                    name: fn_name.clone(),
+                    arguments: fn_meta.parameters.iter().map(|(arg_pattern, arg_type, _arg_vis)| {
+                        let arg_str = self.pattern_to_string(arg_pattern);
+                        (arg_str, arg_type.follow_bindings().into())
+                    }).collect(),
+                };
+                let fn_id = self.debug_types.insert_var_printable(fe_fn_id, &fn_name, ptype.clone());
+                let interned_var_id = self.intern_var_id(fn_id, &call.location);
+                arguments[0] = self.expr(interned_var_id);
+            } else if let (
                 Some(HirExpression::Literal(HirLiteral::Integer(fe_var_id, _))),
                 Some(HirExpression::Ident(HirIdent { id, .. })),
                 true,
@@ -1695,6 +1719,28 @@ impl<'interner> Monomorphizer<'interner> {
         }
 
         bindings
+    }
+
+    fn pattern_to_string(&self, pat: &HirPattern) -> String {
+        match pat {
+            HirPattern::Identifier(hir_id) => self.interner.definition(hir_id.id).name.clone(),
+            HirPattern::Mutable(mpat, _) => format!("mut {}", self.pattern_to_string(mpat)),
+            HirPattern::Tuple(pats, _) => format!("({})", pats.iter()
+                .map(|tpat| self.pattern_to_string(tpat)).collect::<Vec<String>>().join(",")),
+            HirPattern::Struct(Type::Struct(sh_stype, _field_types), fields, _) => {
+                let stype = sh_stype.borrow();
+                format!(
+                    "{} {{ {} }}",
+                    &stype.name.0.contents,
+                    fields.iter().map(|(id,pat)| {
+                        format!("{}: {}", &id.0.contents, self.pattern_to_string(pat))
+                    }).collect::<Vec<String>>().join(", "),
+                )
+            },
+            HirPattern::Struct(typ, fields, _) => {
+                panic!("unexpected type of struct: {typ:?}");
+            },
+        }
     }
 }
 

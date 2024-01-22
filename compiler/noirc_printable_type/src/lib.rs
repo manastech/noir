@@ -40,7 +40,10 @@ pub enum PrintableType {
     TypeVariable {},
     NamedGeneric {},
     Forall {},
-    Function,
+    Function {
+        name: String,
+        arguments: Vec<(String, PrintableType)>,
+    },
     MutableReference {},
     NotConstant {},
 }
@@ -52,8 +55,7 @@ impl PrintableType {
             Self::Field
             | Self::SignedInteger { .. }
             | Self::UnsignedInteger { .. }
-            | Self::Boolean
-            | Self::Function => Some(1),
+            | Self::Boolean => Some(1),
             Self::Array { length, typ } => {
                 length.and_then(|len| typ.field_count().map(|x| x * (len as u32)))
             }
@@ -222,8 +224,11 @@ fn to_string(value: &PrintableValue, typ: &PrintableType) -> Option<String> {
                 output.push_str("false");
             }
         }
-        (PrintableValue::Field(_), PrintableType::Function) => {
-            output.push_str("<<function>>");
+        (PrintableValue::Field(_), PrintableType::Function { name, arguments }) => {
+            output.push_str(&format!(
+                "<<fn {name}({:?})>>",
+                arguments.iter().map(|(var_name,_)| { var_name })
+            ));
         }
         (_, PrintableType::MutableReference { .. }) => {
             output.push_str("<<mutable ref>>");
@@ -349,8 +354,7 @@ pub fn decode_value(
         PrintableType::Field
         | PrintableType::SignedInteger { .. }
         | PrintableType::UnsignedInteger { .. }
-        | PrintableType::Boolean
-        | PrintableType::Function => {
+        | PrintableType::Boolean => {
             let field_element = field_iterator.next().unwrap();
 
             PrintableValue::Field(field_element)

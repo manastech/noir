@@ -1657,7 +1657,10 @@ impl From<&Type> for PrintableType {
             Type::TypeVariable(_, _) => PrintableType::TypeVariable {},
             Type::NamedGeneric(..) => PrintableType::NamedGeneric {},
             Type::Forall(..) => PrintableType::Forall {},
-            Type::Function(_, _, _) => PrintableType::Function,
+            Type::Function(args, _ret, _) => PrintableType::Function {
+                name: "?".to_string(),
+                arguments: args.iter().map(|arg| ("?".to_string(), arg.into())).collect(),
+            },
             Type::MutableReference(_) => PrintableType::MutableReference {},
             Type::NotConstant => PrintableType::NotConstant {},
         }

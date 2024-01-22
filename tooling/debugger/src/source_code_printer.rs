@@ -1,9 +1,10 @@
-use acvm::acir::circuit::OpcodeLocation;
+use acvm::{acir::circuit::OpcodeLocation, BlackBoxFunctionSolver};
 use codespan_reporting::files::Files;
 use nargo::artifacts::debug::DebugArtifact;
 use noirc_errors::Location;
 use owo_colors::OwoColorize;
 use std::ops::Range;
+use crate::context::DebugContext;
 
 #[derive(Debug, PartialEq)]
 enum PrintedLine<'a> {
@@ -31,7 +32,8 @@ struct LocationPrintContext {
 // Given a DebugArtifact and an OpcodeLocation, prints all the source code
 // locations the OpcodeLocation maps to, with some surrounding context and
 // visual aids to highlight the location itself.
-pub(crate) fn print_source_code_location(
+pub(crate) fn print_source_code_location<'a, B: BlackBoxFunctionSolver>(
+    context: &DebugContext<'a, B>,
     debug_artifact: &DebugArtifact,
     location: &OpcodeLocation,
 ) {
@@ -41,6 +43,7 @@ pub(crate) fn print_source_code_location(
     let locations = locations.iter();
 
     for loc in locations {
+        if context.is_source_location_in_debug_module(loc) { continue }
         print_location_path(debug_artifact, *loc);
 
         let lines = render_location(debug_artifact, loc);

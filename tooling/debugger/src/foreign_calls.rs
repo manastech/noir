@@ -13,6 +13,8 @@ pub(crate) enum DebugForeignCall {
     VarDrop,
     MemberAssign(u32),
     DerefAssign,
+    FnEnter,
+    FnExit,
 }
 
 impl std::fmt::Display for DebugForeignCall {
@@ -36,6 +38,8 @@ impl DebugForeignCall {
             DebugForeignCall::MemberAssign(8) => "__debug_member_assign_8",
             DebugForeignCall::MemberAssign(_) => panic!("unsupported member assignment arity"),
             DebugForeignCall::DerefAssign => "__debug_deref_assign",
+            DebugForeignCall::FnEnter => "__debug_fn_enter",
+            DebugForeignCall::FnExit => "__debug_fn_exit",
         }
     }
 
@@ -50,13 +54,15 @@ impl DebugForeignCall {
             "__debug_var_assign" => Some(DebugForeignCall::VarAssign),
             "__debug_var_drop" => Some(DebugForeignCall::VarDrop),
             "__debug_deref_assign" => Some(DebugForeignCall::DerefAssign),
+            "__debug_fn_enter" => Some(DebugForeignCall::FnEnter),
+            "__debug_fn_exit" => Some(DebugForeignCall::FnExit),
             _ => None,
         }
     }
 }
 
 pub trait DebugForeignCallExecutor: ForeignCallExecutor {
-    fn get_variables(&self) -> Vec<(&str, &PrintableValue, &PrintableType)>;
+    fn get_variables(&self) -> Vec<(&str, Vec<&str>, Vec<(&str, &PrintableValue, &PrintableType)>)>;
 }
 
 pub struct DefaultDebugForeignCallExecutor {
@@ -87,7 +93,7 @@ impl DefaultDebugForeignCallExecutor {
 }
 
 impl DebugForeignCallExecutor for DefaultDebugForeignCallExecutor {
-    fn get_variables(&self) -> Vec<(&str, &PrintableValue, &PrintableType)> {
+    fn get_variables(&self) -> Vec<(&str, Vec<&str>, Vec<(&str, &PrintableValue, &PrintableType)>)> {
         self.debug_vars.get_variables()
     }
 }
@@ -148,6 +154,18 @@ impl ForeignCallExecutor for DefaultDebugForeignCallExecutor {
                     let var_id = var_id_value.to_u128() as u32;
                     self.debug_vars.assign_deref(var_id, &fcp_value.values());
                 }
+                Ok(ForeignCallResult { values: vec![] })
+            }
+            Some(DebugForeignCall::FnEnter) => {
+                let fcp_fn_id = &foreign_call.inputs[0];
+                let ForeignCallParam::Single(fn_id_value) = fcp_fn_id
+                    else { panic!("unexpected foreign call parameter in fn enter: {fcp_fn_id:?}") };
+                let fn_id = fn_id_value.to_u128() as u32;
+                self.debug_vars.push_fn(fn_id);
+                Ok(ForeignCallResult { values: vec![] })
+            }
+            Some(DebugForeignCall::FnExit) => {
+                self.debug_vars.pop_fn();
                 Ok(ForeignCallResult { values: vec![] })
             }
             None => self.executor.execute(foreign_call),
