@@ -78,6 +78,10 @@ pub struct CompileOptions {
     #[arg(long, hide = true)]
     pub disable_macros: bool,
 
+    /// Outputs the monomorphized IR to stdout for debugging
+    #[arg(long, hide = true)]
+    pub show_monomorphized: bool,
+
     /// Insert debug symbols to inspect variables
     #[arg(long)]
     pub instrument_debug: bool,
@@ -421,6 +425,9 @@ pub fn compile_no_check(
 
     let hash = fxhash::hash64(&program);
     let hashes_match = cached_program.as_ref().map_or(false, |program| program.hash == hash);
+    if options.show_monomorphized {
+        println!("{program}");
+    }
 
     // If user has specified that they want to see intermediate steps printed then we should
     // force compilation even if the program hasn't changed.

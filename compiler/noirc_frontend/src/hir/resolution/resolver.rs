@@ -449,7 +449,7 @@ impl<'a> Resolver<'a> {
     fn resolve_type_inner(&mut self, typ: UnresolvedType, new_variables: &mut Generics) -> Type {
         use UnresolvedTypeData::*;
 
-        match typ.typ {
+        let resolved_type = match typ.typ {
             FieldElement => Type::FieldElement,
             Array(size, elem) => {
                 let elem = Box::new(self.resolve_type_inner(*elem, new_variables));
@@ -510,7 +510,18 @@ impl<'a> Resolver<'a> {
                 Type::MutableReference(Box::new(self.resolve_type_inner(*element, new_variables)))
             }
             Parenthesized(typ) => self.resolve_type_inner(*typ, new_variables),
+        };
+
+        if let Type::Struct(_, _) = resolved_type {
+            if let Some(unresolved_span) = typ.span {
+                // Record the location of the type reference
+                self.interner.push_type_ref_location(
+                    resolved_type.clone(),
+                    Location::new(unresolved_span, self.file),
+                );
+            }
         }
+        resolved_type
     }
 
     fn find_generic(&self, target_name: &str) -> Option<&(Rc<String>, TypeVariable, Span)> {
@@ -557,6 +568,10 @@ impl<'a> Resolver<'a> {
             });
 
             let result = self.interner.get_type_alias(id).get_type(&args);
+
+            // Collecting Type Alias references [Location]s to be used by LSP in order
+            // to resolve the definition of the type alias
+            self.interner.add_type_alias_ref(id, Location::new(span, self.file));
 
             // Because there is no ordering to when type aliases (and other globals) are resolved,
             // it is possible for one to refer to an Error type and issue no error if it is set
@@ -710,6 +725,7 @@ impl<'a> Resolver<'a> {
         if resolved_type.is_nested_slice() {
             self.errors.push(ResolverError::NestedSlices { span: span.unwrap() });
         }
+
         resolved_type
     }
 

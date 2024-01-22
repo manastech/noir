@@ -64,7 +64,7 @@ pub enum Type {
     TypeVariable(TypeVariable, TypeVariableKind),
 
     /// `impl Trait` when used in a type position.
-    /// These are only matched based on the TraitId. The trait name paramer is only
+    /// These are only matched based on the TraitId. The trait name parameter is only
     /// used for displaying error messages using the name of the trait.
     TraitAsType(TraitId, /*name:*/ Rc<String>, /*generics:*/ Vec<Type>),
 
@@ -314,7 +314,7 @@ pub struct TypeAliasType {
     pub id: TypeAliasId,
     pub typ: Type,
     pub generics: Generics,
-    pub span: Span,
+    pub location: Location,
 }
 
 impl std::hash::Hash for TypeAliasType {
@@ -346,11 +346,11 @@ impl TypeAliasType {
     pub fn new(
         id: TypeAliasId,
         name: Ident,
-        span: Span,
+        location: Location,
         typ: Type,
         generics: Generics,
     ) -> TypeAliasType {
-        TypeAliasType { id, typ, name, span, generics }
+        TypeAliasType { id, typ, name, location, generics }
     }
 
     pub fn set_type_and_generics(&mut self, new_typ: Type, new_generics: Generics) {
