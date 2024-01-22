@@ -5,7 +5,7 @@ use std::collections::{HashMap, HashSet};
 #[derive(Debug, Default, Clone)]
 pub struct DebugVars {
     id_to_name: HashMap<u32, String>,
-    active: HashSet<u32>,
+    frames: Vec<(u32,HashSet<u32>)>,
     id_to_value: HashMap<u32, PrintableValue>, // TODO: something more sophisticated for lexical levels
     id_to_type: HashMap<u32, u32>,
     types: HashMap<u32, PrintableType>,
@@ -13,24 +13,38 @@ pub struct DebugVars {
 
 impl DebugVars {
     pub fn new(vars: &HashMap<u32, String>) -> Self {
-        Self { id_to_name: vars.clone(), ..Self::default() }
+        Self {
+            id_to_name: vars.clone(),
+            ..Self::default()
+        }
     }
 
-    pub fn get_variables(&self) -> Vec<(&str, &PrintableValue, &PrintableType)> {
-        self.active
-            .iter()
-            .filter_map(|var_id| {
-                self.id_to_name
-                    .get(var_id)
-                    .and_then(|name| self.id_to_value.get(var_id).map(|value| (name, value)))
-                    .and_then(|(name, value)| {
-                        self.id_to_type.get(var_id).map(|type_id| (name, value, type_id))
-                    })
-                    .and_then(|(name, value, type_id)| {
-                        self.types.get(type_id).map(|ptype| (name.as_str(), value, ptype))
-                    })
+    pub fn get_variables(&self) -> Vec<(&str, Vec<&str>, Vec<(&str, &PrintableValue, &PrintableType)>)> {
+        self.frames.iter().map(|(fn_id,frame)| {
+            let fn_type_id = self.id_to_type.get(fn_id)
+                .expect("failed to find type for fn_id={fn_id}");
+            let fn_type = self.types.get(fn_type_id)
+                .expect(&format!("failed to get function type for fn_type_id={fn_type_id}"));
+            let PrintableType::Function { name, arguments, .. } = fn_type
+                else { panic!("unexpected function type {fn_type:?}") };
+            let params: Vec<&str> = arguments.iter().map(|(var_name,_)| var_name.as_str()).collect();
+            let vars: Vec<(&str, &PrintableValue, &PrintableType)> = frame.iter()
+                .filter_map(|var_id| { self.lookup_var(*var_id) })
+                .collect();
+            (name.as_str(), params, vars)
+        }).collect()
+    }
+
+    fn lookup_var(&self, var_id: u32) -> Option<(&str, &PrintableValue, &PrintableType)> {
+        self.id_to_name
+            .get(&var_id)
+            .and_then(|name| self.id_to_value.get(&var_id).map(|value| (name, value)))
+            .and_then(|(name, value)| {
+                self.id_to_type.get(&var_id).map(|type_id| (name, value, type_id))
             })
-            .collect()
+            .and_then(|(name, value, type_id)| {
+                self.types.get(type_id).map(|ptype| (name.as_str(), value, ptype))
+            })
     }
 
     pub fn insert_variables(&mut self, vars: &HashMap<u32, (String, u32)>) {
@@ -47,7 +61,7 @@ impl DebugVars {
     }
 
     pub fn assign(&mut self, var_id: u32, values: &[Value]) {
-        self.active.insert(var_id);
+        self.frames.last_mut().expect("unexpected empty stack frames").1.insert(var_id);
         // TODO: assign values as PrintableValue
         let type_id = self.id_to_type.get(&var_id).unwrap();
         let ptype = self.types.get(type_id).unwrap();
@@ -110,12 +124,20 @@ impl DebugVars {
             };
         }
         *cursor = decode_value(&mut values.iter().map(|v| v.to_field()), cursor_type);
-        self.active.insert(var_id);
+        self.frames.last_mut().expect("unexpected empty stack frames").1.insert(var_id);
     }
 
     pub fn assign_deref(&mut self, _var_id: u32, _values: &[Value]) {
         // TODO
         unimplemented![]
+    }
+
+    pub fn push_fn(&mut self, fn_id: u32) {
+        self.frames.push((fn_id, HashSet::default()));
+    }
+
+    pub fn pop_fn(&mut self) {
+        self.frames.pop();
     }
 
     pub fn get(&mut self, var_id: u32) -> Option<&PrintableValue> {
@@ -127,6 +149,6 @@ impl DebugVars {
     }
 
     pub fn drop(&mut self, var_id: u32) {
-        self.active.remove(&var_id);
+        self.frames.last_mut().expect("unexpected empty stack frames").1.remove(&var_id);
     }
 }
