@@ -312,7 +312,7 @@ fn function_return_type() -> impl NoirParser<((Distinctness, Visibility), Functi
 fn attribute() -> impl NoirParser<Attribute> {
     token_kind(TokenKind::Attribute).map(|token| match token {
         Token::Attribute(attribute) => attribute,
-        _ => unreachable!(),
+        _ => unreachable!("Parser should have already errored due to token not being an attribute"),
     })
 }
 
@@ -369,7 +369,7 @@ fn function_parameters<'a>(allow_self: bool) -> impl NoirParser<Vec<Param>> + 'a
 
 /// This parser always parses no input and fails
 fn nothing<T>() -> impl NoirParser<T> {
-    one_of([]).map(|_| unreachable!())
+    one_of([]).map(|_| unreachable!("parser should always error"))
 }
 
 fn self_parameter() -> impl NoirParser<Param> {
@@ -413,13 +413,7 @@ fn trait_definition() -> impl NoirParser<TopLevelStatement> {
         .then_ignore(just(Token::LeftBrace))
         .then(trait_body())
         .then_ignore(just(Token::RightBrace))
-        .validate(|(((name, generics), where_clause), items), span, emit| {
-            if !generics.is_empty() {
-                emit(ParserError::with_reason(
-                    ParserErrorReason::ExperimentalFeature("Generic traits"),
-                    span,
-                ));
-            }
+        .map_with_span(|(((name, generics), where_clause), items), span| {
             TopLevelStatement::Trait(NoirTrait { name, generics, where_clause, span, items })
         })
 }
@@ -613,7 +607,18 @@ fn trait_implementation() -> impl NoirParser<TopLevelStatement> {
 }
 
 fn trait_implementation_body() -> impl NoirParser<Vec<TraitImplItem>> {
-    let function = function_definition(true).map(TraitImplItem::Function);
+    let function = function_definition(true).validate(|mut f, span, emit| {
+        if f.def().is_internal
+            || f.def().is_unconstrained
+            || f.def().is_open
+            || f.def().visibility != FunctionVisibility::Private
+        {
+            emit(ParserError::with_reason(ParserErrorReason::TraitImplFunctionModifiers, span));
+        }
+        // Trait impl functions are always public
+        f.def_mut().visibility = FunctionVisibility::Public;
+        TraitImplItem::Function(f)
+    });
 
     let alias = keyword(Keyword::Type)
         .ignore_then(ident())
@@ -1119,14 +1124,7 @@ fn int_type() -> impl NoirParser<UnresolvedType> {
                 Err(ParserError::expected_label(ParsingRuleLabel::IntegerType, unexpected, span))
             }
         }))
-        .validate(|(_, token), span, emit| {
-            let typ = UnresolvedTypeData::from_int_token(token).with_span(span);
-            if let UnresolvedTypeData::Integer(crate::Signedness::Signed, _) = &typ.typ {
-                let reason = ParserErrorReason::ExperimentalFeature("Signed integer types");
-                emit(ParserError::with_reason(reason, span));
-            }
-            typ
-        })
+        .map_with_span(|(_, token), span| UnresolvedTypeData::from_int_token(token).with_span(span))
 }
 
 fn named_type(type_parser: impl NoirParser<UnresolvedType>) -> impl NoirParser<UnresolvedType> {

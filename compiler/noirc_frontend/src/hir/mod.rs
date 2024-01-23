@@ -8,33 +8,40 @@ use crate::debug::DebugState;
 use crate::graph::{CrateGraph, CrateId};
 use crate::hir_def::function::FuncMeta;
 use crate::node_interner::{FuncId, NodeInterner, StructId};
-use crate::parser::{ParserError, SortedModule};
-use def_map::{parse_file, Contract, CrateDefMap};
+use crate::parser::ParserError;
+use crate::ParsedModule;
+use def_map::{Contract, CrateDefMap};
 use fm::{FileId, FileManager};
 use noirc_errors::Location;
+use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap};
 
 use self::def_map::TestFunction;
 
+pub type ParsedFiles = HashMap<fm::FileId, (ParsedModule, Vec<ParserError>)>;
+
 /// Helper object which groups together several useful context objects used
 /// during name resolution. Once name resolution is finished, only the
 /// def_interner is required for type inference and monomorphization.
-pub struct Context {
+pub struct Context<'file_manager, 'parsed_files> {
     pub def_interner: NodeInterner,
     pub crate_graph: CrateGraph,
     pub(crate) def_maps: BTreeMap<CrateId, CrateDefMap>,
-    pub file_manager: FileManager,
-    pub root_crate_id: CrateId,
+    // In the WASM context, we take ownership of the file manager,
+    // which is why this needs to be a Cow. In all use-cases, the file manager
+    // is read-only however, once it has been passed to the Context.
+    pub file_manager: Cow<'file_manager, FileManager>,
+
     pub debug_state: DebugState,
-    pub instrument_debug: bool,
 
     /// A map of each file that already has been visited from a prior `mod foo;` declaration.
     /// This is used to issue an error if a second `mod foo;` is declared to the same file.
     pub visited_files: BTreeMap<fm::FileId, Location>,
 
-    /// Maps a given (contract) module id to the next available storage slot
-    /// for that contract.
-    pub storage_slots: HashMap<def_map::ModuleId, StorageSlot>,
+    // A map of all parsed files.
+    // Same as the file manager, we take ownership of the parsed files in the WASM context.
+    // Parsed files is also read only.
+    pub parsed_files: Cow<'parsed_files, ParsedFiles>,
 }
 
 pub type StorageSlot = u32;
@@ -46,19 +53,36 @@ pub enum FunctionNameMatch<'a> {
     Contains(&'a str),
 }
 
-impl Context {
-    pub fn new(file_manager: FileManager, crate_graph: CrateGraph) -> Context {
+impl Context<'_, '_> {
+    pub fn new(file_manager: FileManager, parsed_files: ParsedFiles) -> Context<'static, 'static> {
         Context {
             def_interner: NodeInterner::default(),
             def_maps: BTreeMap::new(),
             visited_files: BTreeMap::new(),
-            crate_graph,
-            file_manager,
-            root_crate_id: CrateId::Dummy,
+            crate_graph: CrateGraph::default(),
+            file_manager: Cow::Owned(file_manager),
             debug_state: DebugState::default(),
-            storage_slots: HashMap::new(),
-            instrument_debug: false,
+            parsed_files: Cow::Owned(parsed_files),
         }
+    }
+
+    pub fn from_ref_file_manager<'file_manager, 'parsed_files>(
+        file_manager: &'file_manager FileManager,
+        parsed_files: &'parsed_files ParsedFiles,
+    ) -> Context<'file_manager, 'parsed_files> {
+        Context {
+            def_interner: NodeInterner::default(),
+            def_maps: BTreeMap::new(),
+            visited_files: BTreeMap::new(),
+            crate_graph: CrateGraph::default(),
+            file_manager: Cow::Borrowed(file_manager),
+            debug_state: DebugState::default(),
+            parsed_files: Cow::Borrowed(parsed_files),
+        }
+    }
+
+    pub fn parsed_file_results(&self, file_id: fm::FileId) -> (ParsedModule, Vec<ParserError>) {
+        self.parsed_files.get(&file_id).expect("noir file wasn't parsed").clone()
     }
 
     /// Returns the CrateDefMap for a given CrateId.
@@ -153,7 +177,7 @@ impl Context {
         None
     }
 
-    pub fn function_meta(&self, func_id: &FuncId) -> FuncMeta {
+    pub fn function_meta(&self, func_id: &FuncId) -> &FuncMeta {
         self.def_interner.function_meta(func_id)
     }
 
@@ -195,12 +219,17 @@ impl Context {
             .collect()
     }
 
-    /// Returns the [Location] of the definition of the given Ident found at [Span] of the given [FileId].
-    /// Returns [None] when definition is not found.
-    pub fn get_definition_location_from(&self, location: Location) -> Option<Location> {
+    pub fn get_all_exported_functions_in_crate(&self, crate_id: &CrateId) -> Vec<(String, FuncId)> {
         let interner = &self.def_interner;
+        let def_map = self.def_map(crate_id).expect("The local crate should be analyzed already");
 
-        interner.find_location_index(location).and_then(|index| interner.resolve_location(index))
+        def_map
+            .get_all_exported_functions(interner)
+            .map(|function_id| {
+                let function_name = self.function_name(&function_id).to_owned();
+                (function_name, function_id)
+            })
+            .collect()
     }
 
     /// Return a Vec of all `contract` declarations in the source code and the functions they contain
@@ -212,21 +241,6 @@ impl Context {
 
     fn module(&self, module_id: def_map::ModuleId) -> &def_map::ModuleData {
         module_id.module(&self.def_maps)
-    }
-
-    /// Given a FileId, fetch the File, from the FileManager and parse its content,
-    /// applying sorting and debug transforms if debug mode is enabled.
-    pub fn parse_file(
-        &mut self,
-        file_id: FileId,
-        crate_id: CrateId,
-    ) -> (SortedModule, Vec<ParserError>) {
-        let (mut ast, parsing_errors) = parse_file(&self.file_manager, file_id);
-
-        if self.instrument_debug && crate_id == self.root_crate_id {
-            self.debug_state.insert_symbols(&mut ast);
-        }
-        (ast.into_sorted(), parsing_errors)
     }
 
     pub fn get_root_id(&self, crate_id: CrateId) -> FileId {

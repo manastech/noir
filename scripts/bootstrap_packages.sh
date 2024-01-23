@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -eu
 
 cd $(dirname "$0")/..
@@ -14,7 +14,7 @@ else
   export GIT_COMMIT=$(git rev-parse --verify HEAD)
 fi
 
-yarn
+yarn --immutable
 yarn build
 
 # We create a folder called packages, that contains each package as it would be published to npm, named correctly.

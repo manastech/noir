@@ -2,10 +2,14 @@ use acvm::acir::native_types::WitnessMap;
 use backend_interface::Backend;
 use clap::Args;
 use nargo::constants::PROVER_INPUT_FILE;
+use nargo::ops::compile_program_with_debug_state;
 use nargo::workspace::Workspace;
+use nargo::{insert_all_files_for_workspace_into_file_manager, parse_all};
 use nargo_toml::{get_package_manifest, resolve_workspace_from_toml, PackageSelection};
 use noirc_abi::input_parser::Format;
-use noirc_driver::{CompileOptions, CompiledProgram, NOIR_ARTIFACT_VERSION_STRING};
+use noirc_driver::{
+    file_manager_with_stdlib, CompileOptions, CompiledProgram, NOIR_ARTIFACT_VERSION_STRING,
+};
 use noirc_frontend::graph::CrateName;
 
 use std::io::{BufReader, BufWriter, Read, Write};
@@ -17,7 +21,8 @@ use dap::server::Server;
 use dap::types::Capabilities;
 use serde_json::Value;
 
-use super::compile_cmd::compile_bin_package;
+use super::compile_cmd::report_errors;
+use super::debug_cmd::instrument_package_files;
 use super::fs::inputs::read_inputs_from_file;
 use crate::errors::CliError;
 
@@ -86,24 +91,41 @@ fn load_and_compile_project(
 ) -> Result<(CompiledProgram, WitnessMap), LoadError> {
     let workspace = find_workspace(project_folder, package)
         .ok_or(LoadError::Generic(workspace_not_found_error_msg(project_folder, package)))?;
-    let (np_language, opcode_support) = backend
-        .get_backend_info()
-        .map_err(|_| LoadError::Generic("Failed to get backend info".into()))?;
+    let expression_width = backend
+      .get_backend_info()
+      .map_err(|_| LoadError::Generic("Failed to get backend info".into()))?;
     let package = workspace
         .into_iter()
         .find(|p| p.is_binary())
         .ok_or(LoadError::Generic("No matching binary packages found in workspace".into()))?;
 
-    let compiled_program = compile_bin_package(
-        &workspace,
+    let mut workspace_file_manager = file_manager_with_stdlib(std::path::Path::new(""));
+    insert_all_files_for_workspace_into_file_manager(&workspace, &mut workspace_file_manager);
+    let mut parsed_files = parse_all(&workspace_file_manager);
+
+    let compile_options = CompileOptions {
+        instrument_debug: !skip_instrumentation,
+        force_brillig: !generate_acir,
+        ..CompileOptions::default()
+    };
+
+    let debug_state = instrument_package_files(&mut parsed_files, &workspace_file_manager, package);
+
+    let compilation_result = compile_program_with_debug_state(
+        &workspace_file_manager,
+        &parsed_files,
         package,
-        &CompileOptions {
-            instrument_debug: !skip_instrumentation,
-            force_brillig: !generate_acir,
-            ..CompileOptions::default()
-        },
-        np_language,
-        &opcode_support,
+        &compile_options,
+        expression_width,
+        None,
+        debug_state,
+    );
+
+    let compiled_program = report_errors(
+        compilation_result,
+        &workspace_file_manager,
+        compile_options.deny_warnings,
+        compile_options.silence_warnings,
     )
     .map_err(|_| LoadError::Generic("Failed to compile project".into()))?;
 
@@ -180,9 +202,7 @@ fn loop_uninitialized_dap<R: Read, W: Write>(
                     Ok((compiled_program, initial_witness)) => {
                         server.respond(req.ack()?)?;
 
-                        #[allow(deprecated)]
-                        let blackbox_solver =
-                            barretenberg_blackbox_solver::BarretenbergSolver::new();
+                        let blackbox_solver = bn254_blackbox_solver::Bn254BlackBoxSolver::new();
 
                         noir_debugger::run_dap_loop(
                             server,

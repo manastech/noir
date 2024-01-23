@@ -42,6 +42,8 @@ pub enum RuntimeError {
     UnknownLoopBound { call_stack: CallStack },
     #[error("Argument is not constant")]
     AssertConstantFailed { call_stack: CallStack },
+    #[error("Nested slices are not supported")]
+    NestedSlice { call_stack: CallStack },
 }
 
 // We avoid showing the actual lhs and rhs since most of the time they are just 0
@@ -66,7 +68,7 @@ impl From<SsaReport> for FileDiagnostic {
                 let message = warning.to_string();
                 let (secondary_message, call_stack) = match warning {
                     InternalWarning::ReturnConstant { call_stack } => {
-                        ("constant value".to_string(), call_stack)
+                        ("This variable contains a value which is constrained to be a constant. Consider removing this value as additional return values increase proving/verification time".to_string(), call_stack)
                     },
                     InternalWarning::VerifyProof { call_stack } => {
                         ("verify_proof(...) aggregates data for the verifier, the actual verification will be done when the full proof is verified using nargo verify. nargo prove may generate an invalid proof if bad data is used as input to verify_proof".to_string(), call_stack)
@@ -85,7 +87,7 @@ impl From<SsaReport> for FileDiagnostic {
 
 #[derive(Debug, PartialEq, Eq, Clone, Error, Serialize, Deserialize)]
 pub enum InternalWarning {
-    #[error("Returning a constant value is not allowed")]
+    #[error("Return variable contains a constant value")]
     ReturnConstant { call_stack: CallStack },
     #[error("Calling std::verify_proof(...) does not verify a proof")]
     VerifyProof { call_stack: CallStack },
@@ -106,7 +108,7 @@ pub enum InternalError {
     #[error("ICE: Undeclared AcirVar")]
     UndeclaredAcirVar { call_stack: CallStack },
     #[error("ICE: Expected {expected:?}, found {found:?}")]
-    UnExpected { expected: String, found: String, call_stack: CallStack },
+    Unexpected { expected: String, found: String, call_stack: CallStack },
 }
 
 impl RuntimeError {
@@ -119,7 +121,7 @@ impl RuntimeError {
                 | InternalError::MissingArg { call_stack, .. }
                 | InternalError::NotAConstant { call_stack, .. }
                 | InternalError::UndeclaredAcirVar { call_stack }
-                | InternalError::UnExpected { call_stack, .. },
+                | InternalError::Unexpected { call_stack, .. },
             )
             | RuntimeError::FailedConstraint { call_stack, .. }
             | RuntimeError::IndexOutOfBounds { call_stack, .. }
@@ -129,7 +131,8 @@ impl RuntimeError {
             | RuntimeError::UnknownLoopBound { call_stack }
             | RuntimeError::AssertConstantFailed { call_stack }
             | RuntimeError::IntegerOutOfBounds { call_stack, .. }
-            | RuntimeError::UnsupportedIntegerSize { call_stack, .. } => call_stack,
+            | RuntimeError::UnsupportedIntegerSize { call_stack, .. }
+            | RuntimeError::NestedSlice { call_stack, .. } => call_stack,
         }
     }
 }

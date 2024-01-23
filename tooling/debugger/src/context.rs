@@ -1,3 +1,4 @@
+use crate::foreign_calls::DebugForeignCallExecutor;
 use acvm::acir::circuit::{Circuit, Opcode, OpcodeLocation};
 use acvm::acir::native_types::{Witness, WitnessMap};
 use acvm::brillig_vm::{brillig::Value, Registers};
@@ -6,9 +7,8 @@ use acvm::pwg::{
 };
 use acvm::{BlackBoxFunctionSolver, FieldElement};
 
-use nargo::artifacts::debug::{DebugArtifact, DebugVars};
+use nargo::artifacts::debug::DebugArtifact;
 use nargo::errors::{ExecutionError, Location};
-use nargo::ops::ForeignCallExecutor;
 use nargo::NargoError;
 use noirc_printable_type::{PrintableType, PrintableValue};
 
@@ -25,9 +25,8 @@ pub(super) enum DebugCommandResult {
 pub(super) struct DebugContext<'a, B: BlackBoxFunctionSolver> {
     acvm: ACVM<'a, B>,
     brillig_solver: Option<BrilligSolver<'a, B>>,
-    foreign_call_executor: Box<dyn ForeignCallExecutor + 'a>,
+    foreign_call_executor: Box<dyn DebugForeignCallExecutor + 'a>,
     debug_artifact: &'a DebugArtifact,
-    debug_vars: DebugVars,
     breakpoints: HashSet<OpcodeLocation>,
 }
 
@@ -37,20 +36,13 @@ impl<'a, B: BlackBoxFunctionSolver> DebugContext<'a, B> {
         circuit: &'a Circuit,
         debug_artifact: &'a DebugArtifact,
         initial_witness: WitnessMap,
-        foreign_call_executor: Box<dyn ForeignCallExecutor + 'a>,
+        foreign_call_executor: Box<dyn DebugForeignCallExecutor + 'a>,
     ) -> Self {
-        // TODO: move this into the other context constructor
-        let mut debug_vars = DebugVars::default();
-        debug_artifact.debug_symbols.iter().for_each(|info| {
-            debug_vars.insert_variables(&info.variables);
-            debug_vars.insert_types(&info.types);
-        });
         Self {
             acvm: ACVM::new(blackbox_solver, &circuit.opcodes, initial_witness),
             brillig_solver: None,
             foreign_call_executor,
             debug_artifact,
-            debug_vars,
             breakpoints: HashSet::new(),
         }
     }
@@ -294,8 +286,7 @@ impl<'a, B: BlackBoxFunctionSolver> DebugContext<'a, B> {
     }
 
     fn handle_foreign_call(&mut self, foreign_call: ForeignCallWaitInfo) -> DebugCommandResult {
-        let foreign_call_result =
-            self.foreign_call_executor.execute_with_debug_vars(&foreign_call, &mut self.debug_vars);
+        let foreign_call_result = self.foreign_call_executor.execute(&foreign_call);
         match foreign_call_result {
             Ok(foreign_call_result) => {
                 if let Some(mut solver) = self.brillig_solver.take() {
@@ -480,7 +471,7 @@ impl<'a, B: BlackBoxFunctionSolver> DebugContext<'a, B> {
     }
 
     pub(super) fn get_variables(&self) -> Vec<(&str, &PrintableValue, &PrintableType)> {
-        return self.debug_vars.get_variables();
+        return self.foreign_call_executor.get_variables();
     }
 
     fn breakpoint_reached(&self) -> bool {
@@ -543,6 +534,7 @@ mod tests {
     use super::*;
     use crate::context::{DebugCommandResult, DebugContext};
 
+    use crate::foreign_calls::DefaultDebugForeignCallExecutor;
     use acvm::{
         acir::{
             circuit::{
@@ -551,58 +543,19 @@ mod tests {
             },
             native_types::Expression,
         },
+        blackbox_solver::StubbedBlackBoxSolver,
         brillig_vm::brillig::{
             BinaryFieldOp, Opcode as BrilligOpcode, RegisterIndex, RegisterOrMemory,
         },
     };
-    use nargo::{artifacts::debug::DebugArtifact, ops::DefaultForeignCallExecutor};
+    use nargo::artifacts::debug::DebugArtifact;
     use std::collections::BTreeMap;
-
-    struct StubbedSolver;
-
-    impl BlackBoxFunctionSolver for StubbedSolver {
-        fn schnorr_verify(
-            &self,
-            _public_key_x: &FieldElement,
-            _public_key_y: &FieldElement,
-            _signature: &[u8],
-            _message: &[u8],
-        ) -> Result<bool, acvm::BlackBoxResolutionError> {
-            unimplemented!();
-        }
-
-        fn pedersen_commitment(
-            &self,
-            _inputs: &[FieldElement],
-            _domain_separator: u32,
-        ) -> Result<(FieldElement, FieldElement), acvm::BlackBoxResolutionError> {
-            unimplemented!();
-        }
-
-        fn pedersen_hash(
-            &self,
-            _inputs: &[FieldElement],
-            _domain_separator: u32,
-        ) -> Result<FieldElement, acvm::BlackBoxResolutionError> {
-            unimplemented!();
-        }
-
-        fn fixed_base_scalar_mul(
-            &self,
-            _low: &FieldElement,
-            _high: &FieldElement,
-        ) -> Result<(FieldElement, FieldElement), acvm::BlackBoxResolutionError> {
-            unimplemented!();
-        }
-    }
 
     #[test]
     fn test_resolve_foreign_calls_stepping_into_brillig() {
         let fe_0 = FieldElement::zero();
         let fe_1 = FieldElement::one();
         let w_x = Witness(1);
-
-        let blackbox_solver = &StubbedSolver;
 
         let brillig_opcodes = Brillig {
             inputs: vec![BrilligInputs::Single(Expression {
@@ -635,12 +588,14 @@ mod tests {
 
         let initial_witness = BTreeMap::from([(Witness(1), fe_1)]).into();
 
+        let foreign_call_executor =
+            Box::new(DefaultDebugForeignCallExecutor::from_artifact(true, &debug_artifact));
         let mut context = DebugContext::new(
-            blackbox_solver,
+            &StubbedBlackBoxSolver,
             circuit,
             debug_artifact,
             initial_witness,
-            Box::new(DefaultForeignCallExecutor::new(true)),
+            foreign_call_executor,
         );
 
         assert_eq!(context.get_current_opcode_location(), Some(OpcodeLocation::Acir(0)));
@@ -683,8 +638,6 @@ mod tests {
         let w_y = Witness(2);
         let w_z = Witness(3);
 
-        let blackbox_solver = &StubbedSolver;
-
         // This Brillig block is equivalent to: z = x + y
         let brillig_opcodes = Brillig {
             inputs: vec![
@@ -713,7 +666,7 @@ mod tests {
             // z = x + y
             Opcode::Brillig(brillig_opcodes),
             // x + y - z = 0
-            Opcode::Arithmetic(Expression {
+            Opcode::AssertZero(Expression {
                 mul_terms: vec![],
                 linear_combinations: vec![(fe_1, w_x), (fe_1, w_y), (-fe_1, w_z)],
                 q_c: fe_0,
@@ -729,12 +682,14 @@ mod tests {
 
         let initial_witness = BTreeMap::from([(Witness(1), fe_1), (Witness(2), fe_1)]).into();
 
+        let foreign_call_executor =
+            Box::new(DefaultDebugForeignCallExecutor::from_artifact(true, &debug_artifact));
         let mut context = DebugContext::new(
-            blackbox_solver,
+            &StubbedBlackBoxSolver,
             circuit,
             debug_artifact,
             initial_witness,
-            Box::new(DefaultForeignCallExecutor::new(true)),
+            foreign_call_executor,
         );
 
         // set breakpoint
@@ -759,7 +714,6 @@ mod tests {
 
     #[test]
     fn test_offset_opcode_location() {
-        let blackbox_solver = &StubbedSolver;
         let opcodes = vec![
             Opcode::Brillig(Brillig {
                 inputs: vec![],
@@ -774,17 +728,17 @@ mod tests {
                 bytecode: vec![BrilligOpcode::Stop, BrilligOpcode::Stop, BrilligOpcode::Stop],
                 predicate: None,
             }),
-            Opcode::Arithmetic(Expression::default()),
+            Opcode::AssertZero(Expression::default()),
         ];
         let circuit = Circuit { opcodes, ..Circuit::default() };
         let debug_artifact =
             DebugArtifact { debug_symbols: vec![], file_map: BTreeMap::new(), warnings: vec![] };
         let context = DebugContext::new(
-            blackbox_solver,
+            &StubbedBlackBoxSolver,
             &circuit,
             &debug_artifact,
             WitnessMap::new(),
-            Box::new(DefaultForeignCallExecutor::new(true)),
+            Box::new(DefaultDebugForeignCallExecutor::new(true)),
         );
 
         assert_eq!(context.offset_opcode_location(&None, 0), (None, 0));

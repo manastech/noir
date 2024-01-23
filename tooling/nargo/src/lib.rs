@@ -19,10 +19,11 @@ use std::collections::BTreeMap;
 use fm::FileManager;
 use noirc_driver::{add_dep, prepare_crate, prepare_dependency};
 use noirc_frontend::{
-    graph::{CrateGraph, CrateId, CrateName},
-    hir::Context,
+    graph::{CrateId, CrateName},
+    hir::{def_map::parse_file, Context, ParsedFiles},
 };
 use package::{Dependency, Package};
+use rayon::prelude::*;
 
 pub use self::errors::NargoError;
 
@@ -42,13 +43,21 @@ pub fn prepare_dependencies(
     }
 }
 
+pub fn insert_all_files_for_workspace_into_file_manager(
+    workspace: &workspace::Workspace,
+    file_manager: &mut FileManager,
+) {
+    for package in workspace.clone().into_iter() {
+        insert_all_files_for_package_into_file_manager(package, file_manager);
+    }
+}
 // We will pre-populate the file manager with all the files in the package
 // This is so that we can avoid having to read from disk when we are compiling
 //
 // This does not require parsing because we are interested in the files under the src directory
 // it may turn out that we do not need to include some Noir files that we add to the file
 // manager
-pub fn insert_all_files_for_package_into_file_manager(
+fn insert_all_files_for_package_into_file_manager(
     package: &Package,
     file_manager: &mut FileManager,
 ) {
@@ -87,15 +96,29 @@ fn insert_all_files_for_packages_dependencies_into_file_manager(
     }
 }
 
-pub fn prepare_package(package: &Package) -> (Context, CrateId) {
-    let mut fm = FileManager::new(&package.root_dir);
-    insert_all_files_for_package_into_file_manager(package, &mut fm);
+pub fn parse_all(file_manager: &FileManager) -> ParsedFiles {
+    file_manager
+        .as_file_map()
+        .all_file_ids()
+        .par_bridge()
+        .filter(|&&file_id| {
+            let file_path = file_manager.path(file_id).expect("expected file to exist");
+            let file_extension =
+                file_path.extension().expect("expected all file paths to have an extension");
+            file_extension == "nr"
+        })
+        .map(|&file_id| (file_id, parse_file(file_manager, file_id)))
+        .collect()
+}
 
-    let graph = CrateGraph::default();
-    let mut context = Context::new(fm, graph);
+pub fn prepare_package<'file_manager, 'parsed_files>(
+    file_manager: &'file_manager FileManager,
+    parsed_files: &'parsed_files ParsedFiles,
+    package: &Package,
+) -> (Context<'file_manager, 'parsed_files>, CrateId) {
+    let mut context = Context::from_ref_file_manager(file_manager, parsed_files);
 
     let crate_id = prepare_crate(&mut context, &package.entry_path);
-    context.root_crate_id = crate_id;
 
     prepare_dependencies(&mut context, crate_id, &package.dependencies);
 
@@ -140,10 +163,10 @@ mod tests {
     use tempfile::tempdir;
 
     fn create_test_dir_structure(temp_dir: &Path) -> std::io::Result<()> {
-        fs::create_dir(temp_dir.join("subdir1"))?;
-        File::create(temp_dir.join("subdir1/file1.txt"))?;
-        fs::create_dir(temp_dir.join("subdir2"))?;
-        File::create(temp_dir.join("subdir2/file2.txt"))?;
+        fs::create_dir(temp_dir.join("sub_dir1"))?;
+        File::create(temp_dir.join("sub_dir1/file1.txt"))?;
+        fs::create_dir(temp_dir.join("sub_dir2"))?;
+        File::create(temp_dir.join("sub_dir2/file2.txt"))?;
         File::create(temp_dir.join("file3.txt"))?;
         Ok(())
     }
@@ -160,8 +183,8 @@ mod tests {
         // This should be the paths to all of the files in the directory and the subdirectory
         let expected_paths = vec![
             temp_dir.path().join("file3.txt"),
-            temp_dir.path().join("subdir1/file1.txt"),
-            temp_dir.path().join("subdir2/file2.txt"),
+            temp_dir.path().join("sub_dir1/file1.txt"),
+            temp_dir.path().join("sub_dir2/file2.txt"),
         ];
 
         assert_eq!(paths.len(), expected_paths.len());

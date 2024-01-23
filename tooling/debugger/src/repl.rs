@@ -4,18 +4,14 @@ use acvm::acir::circuit::{Circuit, Opcode, OpcodeLocation};
 use acvm::acir::native_types::{Witness, WitnessMap};
 use acvm::{BlackBoxFunctionSolver, FieldElement};
 
-use nargo::{artifacts::debug::DebugArtifact, ops::DefaultForeignCallExecutor, NargoError};
+use crate::foreign_calls::DefaultDebugForeignCallExecutor;
+use nargo::{artifacts::debug::DebugArtifact, NargoError};
 
 use easy_repl::{command, CommandStatus, Repl};
 use noirc_printable_type::PrintableValueDisplay;
 use std::cell::RefCell;
 
-use codespan_reporting::files::Files;
-use noirc_errors::Location;
-
-use owo_colors::OwoColorize;
-
-use std::ops::Range;
+use crate::source_code_printer::print_source_code_location;
 
 pub struct ReplDebugger<'a, B: BlackBoxFunctionSolver> {
     context: DebugContext<'a, B>,
@@ -33,12 +29,14 @@ impl<'a, B: BlackBoxFunctionSolver> ReplDebugger<'a, B> {
         debug_artifact: &'a DebugArtifact,
         initial_witness: WitnessMap,
     ) -> Self {
+        let foreign_call_executor =
+            Box::new(DefaultDebugForeignCallExecutor::from_artifact(true, debug_artifact));
         let context = DebugContext::new(
             blackbox_solver,
             circuit,
             debug_artifact,
             initial_witness.clone(),
-            Box::new(DefaultForeignCallExecutor::new(true)),
+            foreign_call_executor,
         );
         Self {
             context,
@@ -71,7 +69,8 @@ impl<'a, B: BlackBoxFunctionSolver> ReplDebugger<'a, B> {
                         );
                     }
                 }
-                self.show_source_code_location(&location);
+                let locations = self.context.get_source_location_for_opcode_location(&location);
+                print_source_code_location(self.debug_artifact, &locations);
             }
         }
     }
@@ -92,7 +91,8 @@ impl<'a, B: BlackBoxFunctionSolver> ReplDebugger<'a, B> {
                 );
             }
         }
-        self.show_source_code_location(location);
+        let locations = self.context.get_source_location_for_opcode_location(location);
+        print_source_code_location(self.debug_artifact, &locations);
     }
 
     pub fn show_current_call_stack(&self) {
@@ -104,71 +104,6 @@ impl<'a, B: BlackBoxFunctionSolver> ReplDebugger<'a, B> {
 
         for (i, frame_location) in call_stack.iter().enumerate() {
             self.show_stack_frame(i, frame_location);
-        }
-    }
-
-    fn print_location_path(&self, loc: Location) {
-        let line_number = self.debug_artifact.location_line_number(loc).unwrap();
-        let column_number = self.debug_artifact.location_column_number(loc).unwrap();
-
-        println!(
-            "At {}:{line_number}:{column_number}",
-            self.debug_artifact.name(loc.file).unwrap()
-        );
-    }
-
-    fn show_source_code_location(&self, location: &OpcodeLocation) {
-        let locations = self.context.get_source_location_for_opcode_location(location);
-        for loc in locations {
-            self.print_location_path(loc);
-
-            let loc_line_index = self.debug_artifact.location_line_index(loc).unwrap();
-
-            // How many lines before or after the location's line we print
-            let context_lines = 5;
-
-            let first_line_to_print =
-                if loc_line_index < context_lines { 0 } else { loc_line_index - context_lines };
-
-            let last_line_index = self.debug_artifact.last_line_index(loc).unwrap();
-            let last_line_to_print = std::cmp::min(loc_line_index + context_lines, last_line_index);
-
-            let source = self.debug_artifact.location_source_code(loc).unwrap();
-            for (current_line_index, line) in source.lines().enumerate() {
-                let current_line_number = current_line_index + 1;
-
-                if current_line_index < first_line_to_print {
-                    // Ignore lines before range starts
-                    continue;
-                } else if current_line_index == first_line_to_print && current_line_index > 0 {
-                    // Denote that there's more lines before but we're not showing them
-                    print_line_of_ellipsis(current_line_index);
-                }
-
-                if current_line_index > last_line_to_print {
-                    // Denote that there's more lines after but we're not
-                    // showing them, and stop printing
-                    print_line_of_ellipsis(current_line_number);
-                    break;
-                }
-
-                if current_line_index == loc_line_index {
-                    // Highlight current location
-                    let Range { start: loc_start, end: mut loc_end } =
-                        self.debug_artifact.location_in_line(loc).unwrap();
-                    loc_end = loc_end.min(line.len());
-                    println!(
-                        "{:>3} {:2} {}{}{}",
-                        current_line_number,
-                        "->",
-                        &line[0..loc_start].to_string().dimmed(),
-                        &line[loc_start..loc_end],
-                        &line[loc_end..].to_string().dimmed()
-                    );
-                } else {
-                    print_dimmed_line(current_line_number, line);
-                }
-            }
         }
     }
 
@@ -318,12 +253,14 @@ impl<'a, B: BlackBoxFunctionSolver> ReplDebugger<'a, B> {
     fn restart_session(&mut self) {
         let breakpoints: Vec<OpcodeLocation> =
             self.context.iterate_breakpoints().copied().collect();
+        let foreign_call_executor =
+            Box::new(DefaultDebugForeignCallExecutor::from_artifact(true, self.debug_artifact));
         self.context = DebugContext::new(
             self.blackbox_solver,
             self.circuit,
             self.debug_artifact,
             self.initial_witness.clone(),
-            Box::new(DefaultForeignCallExecutor::new(true)),
+            foreign_call_executor,
         );
         for opcode_location in breakpoints {
             self.context.add_breakpoint(opcode_location);
@@ -436,14 +373,6 @@ impl<'a, B: BlackBoxFunctionSolver> ReplDebugger<'a, B> {
     fn finalize(self) -> WitnessMap {
         self.context.finalize()
     }
-}
-
-fn print_line_of_ellipsis(line_number: usize) {
-    println!("{}", format!("{:>3} {}", line_number, "...").dimmed());
-}
-
-fn print_dimmed_line(line_number: usize, line: &str) {
-    println!("{}", format!("{:>3} {:2} {}", line_number, "", line).dimmed());
 }
 
 pub fn run<B: BlackBoxFunctionSolver>(

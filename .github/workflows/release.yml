@@ -11,6 +11,7 @@ jobs:
     outputs:
       release-pr: ${{ steps.release.outputs.pr }}
       tag-name: ${{ steps.release.outputs.tag_name }}
+      pending-release-semver: v${{ steps.release.outputs.major }}.${{steps.release.outputs.minor}}.${{steps.release.outputs.patch}}
     runs-on: ubuntu-latest
     steps:
       - name: Run release-please
@@ -39,36 +40,19 @@ jobs:
         run: |
           ./scripts/update-acvm-workspace-versions.sh
 
-      - name: Configure git
-        run: |
-          git config user.name kevaundray
-          git config user.email kevtheappdev@gmail.com
-
-      - name: Commit updates
-        run: |
-          git add Cargo.toml
-          git commit -m 'chore: Update root workspace acvm versions'
-          git push
-  
-  update-lockfile:
-    name: Update lockfile
-    needs: [release-please,update-acvm-workspace-package-versions]
-    if: ${{ needs.release-please.outputs.release-pr }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout release branch
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ fromJSON(needs.release-please.outputs.release-pr).headBranchName }}
-          token: ${{ secrets.NOIR_RELEASES_TOKEN }}
-
-      - name: Setup toolchain
-        uses: dtolnay/rust-toolchain@1.65.0
-
       - name: Update lockfile
         run: |
-          cargo update --workspace
+            cargo update --workspace
 
+      - uses: actions/setup-node@v3
+        with:
+          node-version: 18.17.1
+          cache: 'yarn'
+          cache-dependency-path: 'yarn.lock'
+      
+      - name: Update yarn.lock
+        run: yarn
+        
       - name: Configure git
         run: |
           git config user.name kevaundray
@@ -76,33 +60,29 @@ jobs:
 
       - name: Commit updates
         run: |
-          git add Cargo.lock
-          git commit -m 'chore: Update lockfile'
+          git add .
+          git commit -m 'chore: Update root workspace acvm versions and lockfile'
           git push
   
   update-docs:
     name: Update docs
-    needs: [release-please, update-lockfile]
-    if: ${{ needs.release-please.outputs.tag-name }}
+    needs: [release-please, update-acvm-workspace-package-versions]
+    if: ${{ needs.release-please.outputs.release-pr }}
     runs-on: ubuntu-latest
+ 
     steps:
       - name: Checkout release branch
         uses: actions/checkout@v4
         with:
           ref: ${{ fromJSON(needs.release-please.outputs.release-pr).headBranchName }}
           token: ${{ secrets.NOIR_RELEASES_TOKEN }}
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v2
-        with:
-          node-version: '18'
 
       - name: Install Yarn dependencies
         uses: ./.github/actions/setup
 
       - name: Cut a new version
         working-directory: ./docs
-        run: yarn docusaurus docs:version ${{ needs.release-please.outputs.tag-name }}
+        run: yarn docusaurus docs:version ${{ needs.release-please.outputs.pending-release-semver }}
 
       - name: Configure git
         run: |
@@ -112,7 +92,7 @@ jobs:
       - name: Commit new documentation version
         run: |
           git add .
-          git commit -m "chore(docs): cut new docs version for tag ${{ needs.release-please.outputs.tag-name }}"
+          git commit -m "chore(docs): cut new docs version for tag ${{ needs.release-please.outputs.pending-release-semver }}"
           git push
 
   build-binaries:
@@ -143,21 +123,6 @@ jobs:
           ref: master
           token: ${{ secrets.NOIR_REPO_TOKEN }}
           inputs: '{ "noir-ref": "${{ needs.release-please.outputs.tag-name }}", "npm-tag": "latest" }'
-
-  publish-docs:
-    name: Publish docs
-    needs: [release-please]
-    if: ${{ needs.release-please.outputs.tag-name }}
-    runs-on: ubuntu-latest
-    
-    steps:
-      - name: Dispatch to publish-docs
-        uses: benc-uk/workflow-dispatch@v1
-        with:
-          workflow: publish-docs.yml
-          ref: master
-          token: ${{ secrets.NOIR_REPO_TOKEN }}
-          inputs: '{ "noir-ref": "${{ needs.release-please.outputs.tag-name }}" }'
 
   publish-acvm:
     name: Publish acvm

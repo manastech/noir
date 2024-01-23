@@ -8,8 +8,8 @@ use context::SharedContext;
 use iter_extended::{try_vecmap, vecmap};
 use noirc_errors::Location;
 use noirc_frontend::{
-    monomorphization::ast::{self, Binary, Expression, Program},
-    BinaryOpKind, Visibility,
+    monomorphization::ast::{self, Expression, Program},
+    Visibility,
 };
 
 use crate::{
@@ -194,12 +194,14 @@ impl<'a> FunctionContext<'a> {
 
                 let typ = Self::convert_type(&array.typ).flatten();
                 Ok(match array.typ {
-                    ast::Type::Array(_, _) => self.codegen_array(elements, typ[0].clone()),
+                    ast::Type::Array(_, _) => {
+                        self.codegen_array_checked(elements, typ[0].clone())?
+                    }
                     ast::Type::Slice(_) => {
                         let slice_length =
                             self.builder.field_constant(array.contents.len() as u128);
-
-                        let slice_contents = self.codegen_array(elements, typ[1].clone());
+                        let slice_contents =
+                            self.codegen_array_checked(elements, typ[1].clone())?;
                         Tree::Branch(vec![slice_length.into(), slice_contents])
                     }
                     _ => unreachable!(
@@ -236,6 +238,18 @@ impl<'a> FunctionContext<'a> {
         });
         let typ = Self::convert_non_tuple_type(&ast::Type::String(elements.len() as u64));
         self.codegen_array(elements, typ)
+    }
+
+    // Codegen an array but make sure that we do not have a nested slice
+    fn codegen_array_checked(
+        &mut self,
+        elements: Vec<Values>,
+        typ: Type,
+    ) -> Result<Values, RuntimeError> {
+        if typ.is_nested_slice() {
+            return Err(RuntimeError::NestedSlice { call_stack: self.builder.get_call_stack() });
+        }
+        Ok(self.codegen_array(elements, typ))
     }
 
     /// Codegen an array by allocating enough space for each element and inserting separate
@@ -441,8 +455,8 @@ impl<'a> FunctionContext<'a> {
     fn codegen_cast(&mut self, cast: &ast::Cast) -> Result<Values, RuntimeError> {
         let lhs = self.codegen_non_tuple_expression(&cast.lhs)?;
         let typ = Self::convert_non_tuple_type(&cast.r#type);
-        self.builder.set_location(cast.location);
-        Ok(self.builder.insert_cast(lhs, typ).into())
+
+        Ok(self.insert_safe_cast(lhs, typ, cast.location).into())
     }
 
     /// Codegens a for loop, creating three new blocks in the process.
@@ -660,42 +674,10 @@ impl<'a> FunctionContext<'a> {
         location: Location,
         assert_message: Option<String>,
     ) -> Result<Values, RuntimeError> {
-        match expr {
-            // If we're constraining an equality to be true then constrain the two sides directly.
-            Expression::Binary(Binary { lhs, operator: BinaryOpKind::Equal, rhs, .. }) => {
-                let lhs = self.codegen_non_tuple_expression(lhs)?;
-                let rhs = self.codegen_non_tuple_expression(rhs)?;
-                if matches!(self.builder.type_of_value(lhs), Type::Array(..)) {
-                    // Expand constraints on array equality so that:
-                    //   assert(a == b);
-                    // becomes
-                    //   let r = a == b;
-                    //   assert(r);
-                    let expr = self
-                        .insert_binary(lhs, BinaryOpKind::Equal, rhs, location)
-                        .into_leaf()
-                        .eval(self);
-                    let true_literal = self.builder.numeric_constant(true, Type::bool());
-                    self.builder.set_location(location).insert_constrain(
-                        expr,
-                        true_literal,
-                        assert_message,
-                    );
-                } else {
-                    self.builder.set_location(location).insert_constrain(lhs, rhs, assert_message);
-                }
-            }
+        let expr = self.codegen_non_tuple_expression(expr)?;
+        let true_literal = self.builder.numeric_constant(true, Type::bool());
+        self.builder.set_location(location).insert_constrain(expr, true_literal, assert_message);
 
-            _ => {
-                let expr = self.codegen_non_tuple_expression(expr)?;
-                let true_literal = self.builder.numeric_constant(true, Type::bool());
-                self.builder.set_location(location).insert_constrain(
-                    expr,
-                    true_literal,
-                    assert_message,
-                );
-            }
-        }
         Ok(Self::unit_value())
     }
 

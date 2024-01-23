@@ -162,6 +162,7 @@ Runs the Noir program and prints its return value.
 | `--print-acir`                    | Display the ACIR for compiled circuit                                                |
 | `--deny-warnings`                 | Treat all warnings as errors                                                         |
 | `--silence-warnings`              | Suppress warnings                                                                    |
+| `--oracle-resolver`              | JSON RPC url to solve oracle calls                                                                    |
 | `-h, --help`                      | Print help                                                                           |
 
 _Usage_
@@ -188,6 +189,7 @@ Creates a proof for the program.
 | `--print-acir`                        | Display the ACIR for compiled circuit                                                    |
 | `--deny-warnings`                     | Treat all warnings as errors                                                             |
 | `--silence-warnings`                  | Suppress warnings                                                                        |
+| `--oracle-resolver`   | JSON RPC url to solve oracle calls     |
 | `-h, --help`                          | Print help                                                                               |
 
 ## `nargo verify`
@@ -213,7 +215,7 @@ you run `nargo test`. To print `println` statements in tests, use the `--show-ou
 
 Takes an optional `--exact` flag which allows you to select tests based on an exact name.
 
-See an example on the [testing page](@site/docs/getting_started/tooling/testing.md).
+See an example on the [testing page](../getting_started/tooling/testing.md).
 
 ### Options
 
@@ -226,6 +228,7 @@ See an example on the [testing page](@site/docs/getting_started/tooling/testing.
 | `--print-acir`        | Display the ACIR for compiled circuit  |
 | `--deny-warnings`     | Treat all warnings as errors           |
 | `--silence-warnings`  | Suppress warnings                      |
+| `--oracle-resolver`   | JSON RPC url to solve oracle calls     |
 | `-h, --help`          | Print help                             |
 
 ## `nargo info`

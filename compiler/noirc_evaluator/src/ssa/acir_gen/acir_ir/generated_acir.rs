@@ -28,9 +28,12 @@ use num_bigint::BigUint;
 /// The output of the Acir-gen pass
 pub(crate) struct GeneratedAcir {
     /// The next witness index that may be declared.
+    /// If witness index is `None` then we have not yet created a witness
+    /// and thus next witness index that be declared is zero.
+    /// This field is private should only ever be accessed through its getter and setter.
     ///
     /// Equivalent to acvm::acir::circuit::Circuit's field of the same name.
-    pub(crate) current_witness_index: u32,
+    current_witness_index: Option<u32>,
 
     /// The opcodes of which the compiled ACIR will comprise.
     opcodes: Vec<AcirOpcode>,
@@ -60,7 +63,7 @@ pub(crate) struct GeneratedAcir {
 impl GeneratedAcir {
     /// Returns the current witness index.
     pub(crate) fn current_witness_index(&self) -> Witness {
-        Witness(self.current_witness_index)
+        Witness(self.current_witness_index.unwrap_or(0))
     }
 
     /// Adds a new opcode into ACIR.
@@ -78,8 +81,12 @@ impl GeneratedAcir {
     /// Updates the witness index counter and returns
     /// the next witness index.
     pub(crate) fn next_witness_index(&mut self) -> Witness {
-        self.current_witness_index += 1;
-        Witness(self.current_witness_index)
+        if let Some(current_index) = self.current_witness_index {
+            self.current_witness_index.replace(current_index + 1);
+        } else {
+            self.current_witness_index = Some(0);
+        }
+        Witness(self.current_witness_index.expect("ICE: current_witness_index should exist"))
     }
 
     /// Converts [`Expression`] `expr` into a [`Witness`].
@@ -155,10 +162,7 @@ impl GeneratedAcir {
             BlackBoxFunc::Blake2s => {
                 BlackBoxFuncCall::Blake2s { inputs: inputs[0].clone(), outputs }
             }
-            BlackBoxFunc::HashToField128Security => BlackBoxFuncCall::HashToField128Security {
-                inputs: inputs[0].clone(),
-                output: outputs[0],
-            },
+            BlackBoxFunc::Blake3 => BlackBoxFuncCall::Blake3 { inputs: inputs[0].clone(), outputs },
             BlackBoxFunc::SchnorrVerify => {
                 BlackBoxFuncCall::SchnorrVerify {
                     public_key_x: inputs[0][0],
@@ -208,6 +212,18 @@ impl GeneratedAcir {
                 high: inputs[1][0],
                 outputs: (outputs[0], outputs[1]),
             },
+            BlackBoxFunc::EmbeddedCurveAdd => BlackBoxFuncCall::EmbeddedCurveAdd {
+                input1_x: inputs[0][0],
+                input1_y: inputs[1][0],
+                input2_x: inputs[2][0],
+                input2_y: inputs[3][0],
+                outputs: (outputs[0], outputs[1]),
+            },
+            BlackBoxFunc::EmbeddedCurveDouble => BlackBoxFuncCall::EmbeddedCurveDouble {
+                input_x: inputs[0][0],
+                input_y: inputs[1][0],
+                outputs: (outputs[0], outputs[1]),
+            },
             BlackBoxFunc::Keccak256 => {
                 let var_message_size = match inputs.to_vec().pop() {
                     Some(var_message_size) => var_message_size[0],
@@ -226,26 +242,15 @@ impl GeneratedAcir {
                     outputs,
                 }
             }
-            BlackBoxFunc::RecursiveAggregation => {
-                let has_previous_aggregation = self.opcodes.iter().any(|op| {
-                    matches!(
-                        op,
-                        AcirOpcode::BlackBoxFuncCall(BlackBoxFuncCall::RecursiveAggregation { .. })
-                    )
-                });
-
-                let input_aggregation_object =
-                    if !has_previous_aggregation { None } else { Some(inputs[4].clone()) };
-
-                BlackBoxFuncCall::RecursiveAggregation {
-                    verification_key: inputs[0].clone(),
-                    proof: inputs[1].clone(),
-                    public_inputs: inputs[2].clone(),
-                    key_hash: inputs[3][0],
-                    input_aggregation_object,
-                    output_aggregation_object: outputs,
-                }
+            BlackBoxFunc::Keccakf1600 => {
+                BlackBoxFuncCall::Keccakf1600 { inputs: inputs[0].clone(), outputs }
             }
+            BlackBoxFunc::RecursiveAggregation => BlackBoxFuncCall::RecursiveAggregation {
+                verification_key: inputs[0].clone(),
+                proof: inputs[1].clone(),
+                public_inputs: inputs[2].clone(),
+                key_hash: inputs[3][0],
+            },
         };
 
         self.push_opcode(AcirOpcode::BlackBoxFuncCall(black_box_func_call));
@@ -372,7 +377,7 @@ impl GeneratedAcir {
     /// If `expr` is not zero, then the constraint system will
     /// fail upon verification.
     pub(crate) fn assert_is_zero(&mut self, expr: Expression) {
-        self.push_opcode(AcirOpcode::Arithmetic(expr));
+        self.push_opcode(AcirOpcode::AssertZero(expr));
     }
 
     /// Returns a `Witness` that is constrained to be:
@@ -552,7 +557,7 @@ impl GeneratedAcir {
 
         // Constrain the network output to out_expr
         for (b, o) in b.iter().zip(out_expr) {
-            self.push_opcode(AcirOpcode::Arithmetic(b - o));
+            self.push_opcode(AcirOpcode::AssertZero(b - o));
         }
         Ok(())
     }
@@ -573,9 +578,11 @@ fn black_box_func_expected_input_size(name: BlackBoxFunc) -> Option<usize> {
         BlackBoxFunc::Keccak256
         | BlackBoxFunc::SHA256
         | BlackBoxFunc::Blake2s
+        | BlackBoxFunc::Blake3
         | BlackBoxFunc::PedersenCommitment
-        | BlackBoxFunc::PedersenHash
-        | BlackBoxFunc::HashToField128Security => None,
+        | BlackBoxFunc::PedersenHash => None,
+
+        BlackBoxFunc::Keccakf1600 => Some(25),
 
         // Can only apply a range constraint to one
         // witness at a time.
@@ -591,6 +598,10 @@ fn black_box_func_expected_input_size(name: BlackBoxFunc) -> Option<usize> {
         BlackBoxFunc::FixedBaseScalarMul => Some(2),
         // Recursive aggregation has a variable number of inputs
         BlackBoxFunc::RecursiveAggregation => None,
+        // Addition over the embedded curve: input are coordinates (x1,y1) and (x2,y2) of the Grumpkin points
+        BlackBoxFunc::EmbeddedCurveAdd => Some(4),
+        // Doubling over the embedded curve: input is (x,y) coordinate of the point.
+        BlackBoxFunc::EmbeddedCurveDouble => Some(2),
     }
 }
 
@@ -602,9 +613,11 @@ fn black_box_expected_output_size(name: BlackBoxFunc) -> Option<usize> {
         // or the operation.
         BlackBoxFunc::AND | BlackBoxFunc::XOR => Some(1),
         // 32 byte hash algorithms
-        BlackBoxFunc::Keccak256 | BlackBoxFunc::SHA256 | BlackBoxFunc::Blake2s => Some(32),
-        // Hash to field returns a field element
-        BlackBoxFunc::HashToField128Security => Some(1),
+        BlackBoxFunc::Keccak256
+        | BlackBoxFunc::SHA256
+        | BlackBoxFunc::Blake2s
+        | BlackBoxFunc::Blake3 => Some(32),
+        BlackBoxFunc::Keccakf1600 => Some(25),
         // Pedersen commitment returns a point
         BlackBoxFunc::PedersenCommitment => Some(2),
         // Pedersen hash returns a field
@@ -616,9 +629,11 @@ fn black_box_expected_output_size(name: BlackBoxFunc) -> Option<usize> {
         BlackBoxFunc::SchnorrVerify
         | BlackBoxFunc::EcdsaSecp256k1
         | BlackBoxFunc::EcdsaSecp256r1 => Some(1),
-        // Output of fixed based scalar mul over the embedded curve
+        // Output of operations over the embedded curve
         // will be 2 field elements representing the point.
-        BlackBoxFunc::FixedBaseScalarMul => Some(2),
+        BlackBoxFunc::FixedBaseScalarMul
+        | BlackBoxFunc::EmbeddedCurveAdd
+        | BlackBoxFunc::EmbeddedCurveDouble => Some(2),
         // Recursive aggregation has a variable number of outputs
         BlackBoxFunc::RecursiveAggregation => None,
     }
