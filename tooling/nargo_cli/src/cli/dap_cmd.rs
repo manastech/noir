@@ -59,10 +59,11 @@ fn load_and_compile_project(
     project_folder: &str,
     package: Option<&str>,
     prover_name: &str,
+    generate_acir: bool,
+    skip_instrumentation: bool,
 ) -> Result<(CompiledProgram, WitnessMap), LoadError> {
     let workspace =
         find_workspace(project_folder, package).ok_or(LoadError("Cannot open workspace"))?;
-
     let expression_width =
         backend.get_backend_info().map_err(|_| LoadError("Failed to get backend info"))?;
     let package = workspace
@@ -74,8 +75,11 @@ fn load_and_compile_project(
     insert_all_files_for_workspace_into_file_manager(&workspace, &mut workspace_file_manager);
     let mut parsed_files = parse_all(&workspace_file_manager);
 
-    let compile_options =
-        CompileOptions { instrument_debug: true, force_brillig: true, ..CompileOptions::default() };
+    let compile_options = CompileOptions {
+        instrument_debug: !skip_instrumentation,
+        force_brillig: !generate_acir,
+        ..CompileOptions::default()
+    };
 
     let debug_state = instrument_package_files(&mut parsed_files, &workspace_file_manager, package);
 
@@ -147,11 +151,25 @@ fn loop_uninitialized_dap<R: Read, W: Write>(
                     .and_then(|v| v.as_str())
                     .unwrap_or(PROVER_INPUT_FILE);
 
+                let generate_acir =
+                    additional_data.get("generateAcir").and_then(|v| v.as_bool()).unwrap_or(false);
+                let skip_instrumentation = additional_data
+                    .get("skipInstrumentation")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+
                 eprintln!("Project folder: {}", project_folder);
                 eprintln!("Package: {}", package.unwrap_or("(default)"));
                 eprintln!("Prover name: {}", prover_name);
 
-                match load_and_compile_project(backend, project_folder, package, prover_name) {
+                match load_and_compile_project(
+                    backend,
+                    project_folder,
+                    package,
+                    prover_name,
+                    generate_acir,
+                    skip_instrumentation,
+                ) {
                     Ok((compiled_program, initial_witness)) => {
                         server.respond(req.ack()?)?;
 
