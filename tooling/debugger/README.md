@@ -55,10 +55,10 @@ Available commands:
   break LOCATION:OpcodeLocation    add a breakpoint at an opcode location
   memory                           show Brillig memory (valid when executing a
                                    Brillig block)
-  into                             step into to the next opcode
+  acir-next                        execute until the next ACIR opcode, skipping Brilling blocks
   next                             step until a new source location is reached
   delete LOCATION:OpcodeLocation   delete breakpoint at an opcode location
-  step                             step to the next ACIR opcode
+  step                             step into the next ACIR or Brillig opcode
   registers                        show Brillig registers (valid when executing
                                    a Brillig block)
   regset index:usize value:String  update a Brillig register with the given
@@ -137,7 +137,7 @@ Note: in future versions of the debugger, we could explore prettier or more comp
 So the next opcode will take us to Brillig execution. Let's step into opcode 1 so we can explore Brillig debugger commands.
 
 ```
-> into
+> step
 At opcode 1: BRILLIG: inputs: [Single(Expression { mul_terms: [], linear_combinations: [(1, Witness(3))], q_c: 0 })]
 outputs: [Simple(Witness(4))]
 [JumpIfNot { condition: RegisterIndex(0), location: 3 }, Const { destination: RegisterIndex(1), value: Value { inner: 1 } }, BinaryFieldOp { destination: RegisterIndex(0), op: Div, lhs: RegisterIndex(1), rhs: RegisterIndex(0) }, Stop]
@@ -171,7 +171,7 @@ _3 = 1
 
 We can see two arrow `->` cursors: one indicates where we are from the perspective of ACIR (opcode 1), and the other one shows us where we are in the context of the current Brillig block (opcode 1.0).
 
-Note: REPL commands are autocompleted when not ambiguous, so `opcodes` can be run just with `op`, `into` with `i`, etc.
+Note: REPL commands are autocompleted when not ambiguous, so `opcodes` can be run just with `op`, `step` with `s`, etc.
 
 The next opcode to execute is a `JumpIfNot`, which reads from register 0. Let's inspect Brillig register state:
 
@@ -316,40 +316,7 @@ Finished execution
 Upon quitting the debugger after a solved circuit, the resulting circuit witness gets saved, equivalent to what would happen if we had run the same circuit with `nargo execute`.
 
 
-# Testing experimental features
-
-There's a number of features that are in active development and that can't yet be merged to the main branch for different reasons. In this section we detail what those features are and how to try them out.
-
-## Build from experimental branch at fork
-
-Build Nargo by pulling the source version from https://github.com/manastech/noir/tree/dap-with-vars.
-
-This will result in a Nargo binary being written to `PROJECT_ROOT/target/debug/nargo`. We will use this path later, so keep it at hand or export it to a an env var. For example:
-
-`export NARGO_EXP=PROJECT_ROOT/target/debug/nargo`
-
-## About the experimental features
-
-There are currently 2 experimental features in the debugger:
-
-- Variables inspection
-- Stacktrace inspection
-
-NOTE: Supporting variables inspection requires extensive instrumentation of the compiler, handling all cases of variable creation, types, and value assignment. At the time of writing this README, some cases are still not supported. For example, if your program uses slices or references, this compiler version might panic when trying to compile them, or at some point during the debugger step-by-step execution. This is the main reason why this feature has not yet been merged into master. 
-
-## Trying out REPL experimental features
-
-To try out these features, go through the same steps as described at the REPL Debugger section above, but instead of using `nargo debug` use `$NARGO_EXP debug` (assuming you exported your custom built Nargo binary to NARGO_EXP). 
-
-When entering `help` on this version, you'll find two new commands:
-
-```
-...
-stacktrace                       display the current stack trace
-...
-vars                             show variable values available at this point
-                                   in execution
-```
+## vars
 
 Running `vars` will print the current variables in scope, and its current values:
 
@@ -369,6 +336,8 @@ y:UnsignedInteger { width: 32 }=Field(4), z:UnsignedInteger { width: 32 }=Field(
 > 
 ```
 
+## stacktrace
+
 Running `stacktrace` will print information about the current frame in the stacktrace:
 
 ```
@@ -387,31 +356,6 @@ At /1_mul/src/main.nr:6:5
 > 
 ```
 
-## Testing the VS Code extension (experimental)
-
-There is a fork of the official Noir Visual Studio extension which enables the debugger in VS Code. This fork is at: https://github.com/manastech/vscode-noir/tree/dap-support.
-
-In this section, we'll explain how to test the VS Code Noir debugger combining that extension fork with the experimental features branch discussed above.
-
-1. First, get a copy of the extension source code from https://github.com/manastech/vscode-noir/tree/dap-support.
-
-2. Package the extension by running `npm run package`.
-
-3. Open the root folder of the extension on VS Code.
-
-4. From VS Code, press fn+F5. This will open a new VS Code window with the extension loaded from source. 
-
-5. Go to Code -> Settings -> Extensions -> Noir Language Server. Look for the property `Nargo Path` and enter the path to the experimental build you got as a result of following the steps at [Trying out REPL experimental features](#trying-out-repl-experimental-features).
-
-6. At the VS Code sidebar, go to the debugger section (see screenshot). Click "Add configuration". Overwrite the `projectFolder` property with the absolute path to the Nargo project you want to debug.
-
-<img width="473" alt="Screenshot 2023-12-18 at 14 37 38" src="https://github.com/manastech/noir/assets/651693/cdad9ee1-8164-4c33-ab24-2584016088f0">
-
-7. Go to a Noir file you want to debug. Navigate again to the debug section of VS Code, and click the "play" icon.
-
-The debugger should now have started. Current features exposed to the debugger include different kinds of stepping interactions, variable inspection and stacktraces. At the time of writing, Brillig registers and memory are not being exposed, but they will soon be.  
-
-![Screen Recording 2023-12-18 at 14 14 28](https://github.com/manastech/noir/assets/651693/36b4becb-953a-4158-9c5a-7a185673f54f)
 
 ## Towards debugging contracts
 

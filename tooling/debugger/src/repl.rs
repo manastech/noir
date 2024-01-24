@@ -328,9 +328,9 @@ pub fn run<B: BlackBoxFunctionSolver>(
 
     let mut repl = Repl::builder()
         .add(
-            "step",
+            "acir-next",
             command! {
-                "step to the next ACIR opcode",
+                "execute until the next ACIR opcode, skipping Brillig blocks",
                 () => || {
                     ref_context.borrow_mut().step_acir_opcode();
                     Ok(CommandStatus::Done)
@@ -338,9 +338,9 @@ pub fn run<B: BlackBoxFunctionSolver>(
             },
         )
         .add(
-            "into",
+            "step",
             command! {
-                "step into to the next opcode",
+                "step into the next ACIR or Brillig opcode",
                 () => || {
                     ref_context.borrow_mut().step_into_opcode();
                     Ok(CommandStatus::Done)
