@@ -25,7 +25,12 @@ impl DebugTypes {
         self.insert_var_printable(fe_var_id, var_name, ptype)
     }
 
-    pub fn insert_var_printable(&mut self, fe_var_id: u32, var_name: &str, ptype: PrintableType) -> u32 {
+    pub fn insert_var_printable(
+        &mut self,
+        fe_var_id: u32,
+        var_name: &str,
+        ptype: PrintableType,
+    ) -> u32 {
         let type_id = self.types.get(&ptype).cloned().unwrap_or_else(|| {
             let type_id = self.next_type_id;
             self.next_type_id += 1;
