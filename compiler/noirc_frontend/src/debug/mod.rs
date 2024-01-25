@@ -57,7 +57,7 @@ impl DebugState {
         }
         self.scope.push(HashMap::default());
         let fn_id = self.insert_var(&f.name.0.contents);
-        let enter_fn = Self::call_fn("enter", vec![uint_expr(fn_id as u128, none_span())]);
+        let enter_fn = Self::call_fn("enter", vec![uint_expr(fn_id as u128, none_span())], f.span);
 
         let pvars: Vec<(u32, ast::Ident, bool)> = f
             .parameters
@@ -126,7 +126,7 @@ impl DebugState {
                 .collect(),
             // exit fn for fn scopes
             if let Some(fn_id) = opt_fn_id {
-                vec![Self::call_fn("exit", vec![uint_expr(fn_id as u128, none_span())])]
+                vec![Self::call_fn("exit", vec![uint_expr(fn_id as u128, none_span())], ret_stmt.span)]
             } else {
                 vec![]
             },
@@ -185,8 +185,7 @@ impl DebugState {
         ast::Statement { kind: ast::StatementKind::Semi(ast::Expression { kind, span }), span }
     }
 
-    fn call_fn(fname: &str, arguments: Vec<ast::Expression>) -> ast::Statement {
-        let span = none_span();
+    fn call_fn(fname: &str, arguments: Vec<ast::Expression>, span: Span) -> ast::Statement {
         let kind = ast::ExpressionKind::Call(Box::new(ast::CallExpression {
             func: Box::new(ast::Expression {
                 kind: ast::ExpressionKind::Variable(ast::Path {
