@@ -1815,7 +1815,7 @@ impl<'interner> Monomorphizer<'interner> {
                         .join(", "),
                 )
             }
-            HirPattern::Struct(typ, fields, _) => {
+            HirPattern::Struct(typ, _fields, _) => {
                 panic!("unexpected type of struct: {typ:?}");
             }
         }
