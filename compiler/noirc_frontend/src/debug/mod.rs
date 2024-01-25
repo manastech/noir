@@ -126,7 +126,11 @@ impl DebugState {
                 .collect(),
             // exit fn for fn scopes
             if let Some(fn_id) = opt_fn_id {
-                vec![Self::call_fn("exit", vec![uint_expr(fn_id as u128, none_span())], ret_stmt.span)]
+                vec![Self::call_fn(
+                    "exit",
+                    vec![uint_expr(fn_id as u128, none_span())],
+                    ret_stmt.span,
+                )]
             } else {
                 vec![]
             },
