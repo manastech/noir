@@ -5,7 +5,7 @@ use std::collections::{HashMap, HashSet};
 #[derive(Debug, Default, Clone)]
 pub struct DebugVars {
     id_to_name: HashMap<u32, String>,
-    frames: Vec<(u32,HashSet<u32>)>,
+    frames: Vec<(u32, HashSet<u32>)>,
     id_to_value: HashMap<u32, PrintableValue>, // TODO: something more sophisticated for lexical levels
     id_to_type: HashMap<u32, u32>,
     types: HashMap<u32, PrintableType>,
@@ -13,26 +13,30 @@ pub struct DebugVars {
 
 impl DebugVars {
     pub fn new(vars: &HashMap<u32, String>) -> Self {
-        Self {
-            id_to_name: vars.clone(),
-            ..Self::default()
-        }
+        Self { id_to_name: vars.clone(), ..Self::default() }
     }
 
-    pub fn get_variables(&self) -> Vec<(&str, Vec<&str>, Vec<(&str, &PrintableValue, &PrintableType)>)> {
-        self.frames.iter().map(|(fn_id,frame)| {
-            let fn_type_id = self.id_to_type.get(fn_id)
-                .expect("failed to find type for fn_id={fn_id}");
-            let fn_type = self.types.get(fn_type_id)
-                .expect(&format!("failed to get function type for fn_type_id={fn_type_id}"));
-            let PrintableType::Function { name, arguments, .. } = fn_type
+    pub fn get_variables(
+        &self,
+    ) -> Vec<(&str, Vec<&str>, Vec<(&str, &PrintableValue, &PrintableType)>)> {
+        self.frames
+            .iter()
+            .map(|(fn_id, frame)| {
+                let fn_type_id =
+                    self.id_to_type.get(fn_id).expect("failed to find type for fn_id={fn_id}");
+                let fn_type = self
+                    .types
+                    .get(fn_type_id)
+                    .expect(&format!("failed to get function type for fn_type_id={fn_type_id}"));
+                let PrintableType::Function { name, arguments, .. } = fn_type
                 else { panic!("unexpected function type {fn_type:?}") };
-            let params: Vec<&str> = arguments.iter().map(|(var_name,_)| var_name.as_str()).collect();
-            let vars: Vec<(&str, &PrintableValue, &PrintableType)> = frame.iter()
-                .filter_map(|var_id| { self.lookup_var(*var_id) })
-                .collect();
-            (name.as_str(), params, vars)
-        }).collect()
+                let params: Vec<&str> =
+                    arguments.iter().map(|(var_name, _)| var_name.as_str()).collect();
+                let vars: Vec<(&str, &PrintableValue, &PrintableType)> =
+                    frame.iter().filter_map(|var_id| self.lookup_var(*var_id)).collect();
+                (name.as_str(), params, vars)
+            })
+            .collect()
     }
 
     fn lookup_var(&self, var_id: u32) -> Option<(&str, &PrintableValue, &PrintableType)> {

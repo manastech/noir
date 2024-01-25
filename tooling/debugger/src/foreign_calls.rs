@@ -62,7 +62,8 @@ impl DebugForeignCall {
 }
 
 pub trait DebugForeignCallExecutor: ForeignCallExecutor {
-    fn get_variables(&self) -> Vec<(&str, Vec<&str>, Vec<(&str, &PrintableValue, &PrintableType)>)>;
+    fn get_variables(&self)
+        -> Vec<(&str, Vec<&str>, Vec<(&str, &PrintableValue, &PrintableType)>)>;
 }
 
 pub struct DefaultDebugForeignCallExecutor {
@@ -93,7 +94,9 @@ impl DefaultDebugForeignCallExecutor {
 }
 
 impl DebugForeignCallExecutor for DefaultDebugForeignCallExecutor {
-    fn get_variables(&self) -> Vec<(&str, Vec<&str>, Vec<(&str, &PrintableValue, &PrintableType)>)> {
+    fn get_variables(
+        &self,
+    ) -> Vec<(&str, Vec<&str>, Vec<(&str, &PrintableValue, &PrintableType)>)> {
         self.debug_vars.get_variables()
     }
 }

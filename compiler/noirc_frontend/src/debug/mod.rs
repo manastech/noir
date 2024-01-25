@@ -52,7 +52,9 @@ impl DebugState {
     }
 
     fn walk_fn(&mut self, f: &mut ast::FunctionDefinition) {
-        if is_instrumentation_method(&f.name.0.contents) { return }
+        if is_instrumentation_method(&f.name.0.contents) {
+            return;
+        }
         self.scope.push(HashMap::default());
         let fn_id = self.insert_var(&f.name.0.contents);
         let enter_fn = Self::call_fn("enter", vec![uint_expr(fn_id as u128, none_span())]);
@@ -76,11 +78,7 @@ impl DebugState {
         self.walk_scope(&mut f.body.0, Some(fn_id));
 
         // prapend fn params:
-        f.body.0 = vec![
-            vec![enter_fn],
-            set_fn_params,
-            f.body.0.clone(),
-        ].concat();
+        f.body.0 = vec![vec![enter_fn], set_fn_params, f.body.0.clone()].concat();
     }
 
     // Modify a vector of statements in-place, adding instrumentation for sets and drops.
@@ -128,7 +126,7 @@ impl DebugState {
                 .collect(),
             // exit fn for fn scopes
             if let Some(fn_id) = opt_fn_id {
-                vec![ Self::call_fn("exit", vec![uint_expr(fn_id as u128, none_span())]) ]
+                vec![Self::call_fn("exit", vec![uint_expr(fn_id as u128, none_span())])]
             } else {
                 vec![]
             },
@@ -661,7 +659,7 @@ fn is_instrumentation_method(fname: &str) -> bool {
         | "__debug_dereference_assign"
         | "__debug_fn_enter"
         | "__debug_fn_exit" => true,
-        _ => fname.starts_with("__debug_member_assign_")
+        _ => fname.starts_with("__debug_member_assign_"),
     }
 }
 

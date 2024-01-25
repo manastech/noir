@@ -1109,16 +1109,20 @@ impl<'interner> Monomorphizer<'interner> {
         let fn_name = self.interner.definition(fn_meta.name.id).name.clone();
         let ptype = PrintableType::Function {
             name: fn_name.clone(),
-            arguments: fn_meta.parameters.iter().map(|(arg_pattern, arg_type, _arg_vis)| {
-                let arg_str = self.pattern_to_string(arg_pattern);
-                (arg_str, arg_type.follow_bindings().into())
-            }).collect(),
+            arguments: fn_meta
+                .parameters
+                .iter()
+                .map(|(arg_pattern, arg_type, _arg_vis)| {
+                    let arg_str = self.pattern_to_string(arg_pattern);
+                    (arg_str, arg_type.follow_bindings().into())
+                })
+                .collect(),
             env: Box::new(PrintableType::Tuple { types: vec![] }),
         };
         let fn_id = self.debug_types.insert_var_printable(
             fe_fn_id.to_u128() as u32,
             &fn_name,
-            ptype.clone()
+            ptype.clone(),
         );
         let interned_var_id = self.intern_var_id(fn_id, &call.location);
         arguments[0] = self.expr(interned_var_id);
@@ -1790,21 +1794,30 @@ impl<'interner> Monomorphizer<'interner> {
         match pat {
             HirPattern::Identifier(hir_id) => self.interner.definition(hir_id.id).name.clone(),
             HirPattern::Mutable(mpat, _) => format!("mut {}", self.pattern_to_string(mpat)),
-            HirPattern::Tuple(pats, _) => format!("({})", pats.iter()
-                .map(|tpat| self.pattern_to_string(tpat)).collect::<Vec<String>>().join(",")),
+            HirPattern::Tuple(pats, _) => format!(
+                "({})",
+                pats.iter()
+                    .map(|tpat| self.pattern_to_string(tpat))
+                    .collect::<Vec<String>>()
+                    .join(",")
+            ),
             HirPattern::Struct(Type::Struct(sh_stype, _field_types), fields, _) => {
                 let stype = sh_stype.borrow();
                 format!(
                     "{} {{ {} }}",
                     &stype.name.0.contents,
-                    fields.iter().map(|(id,pat)| {
-                        format!("{}: {}", &id.0.contents, self.pattern_to_string(pat))
-                    }).collect::<Vec<String>>().join(", "),
+                    fields
+                        .iter()
+                        .map(|(id, pat)| {
+                            format!("{}: {}", &id.0.contents, self.pattern_to_string(pat))
+                        })
+                        .collect::<Vec<String>>()
+                        .join(", "),
                 )
-            },
+            }
             HirPattern::Struct(typ, fields, _) => {
                 panic!("unexpected type of struct: {typ:?}");
-            },
+            }
         }
     }
 }
