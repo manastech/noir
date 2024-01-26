@@ -3,10 +3,10 @@ use acvm::{
     pwg::ForeignCallWaitInfo,
 };
 use nargo::{
-    artifacts::debug::{DebugArtifact, DebugVars},
+    artifacts::debug::{DebugArtifact, DebugVars, StackFrame},
     ops::{DefaultForeignCallExecutor, ForeignCallExecutor},
 };
-use noirc_printable_type::{ForeignCallError, PrintableType, PrintableValue};
+use noirc_printable_type::ForeignCallError;
 
 pub(crate) enum DebugForeignCall {
     VarAssign,
@@ -62,8 +62,8 @@ impl DebugForeignCall {
 }
 
 pub trait DebugForeignCallExecutor: ForeignCallExecutor {
-    fn get_variables(&self)
-        -> Vec<(&str, Vec<&str>, Vec<(&str, &PrintableValue, &PrintableType)>)>;
+    fn get_variables(&self) -> Vec<StackFrame>;
+    fn current_stack_frame(&self) -> Option<StackFrame>;
 }
 
 pub struct DefaultDebugForeignCallExecutor {
@@ -94,10 +94,12 @@ impl DefaultDebugForeignCallExecutor {
 }
 
 impl DebugForeignCallExecutor for DefaultDebugForeignCallExecutor {
-    fn get_variables(
-        &self,
-    ) -> Vec<(&str, Vec<&str>, Vec<(&str, &PrintableValue, &PrintableType)>)> {
+    fn get_variables(&self) -> Vec<StackFrame> {
         self.debug_vars.get_variables()
+    }
+
+    fn current_stack_frame(&self) -> Option<StackFrame> {
+        self.debug_vars.current_stack_frame()
     }
 }
 
