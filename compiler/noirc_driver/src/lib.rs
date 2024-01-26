@@ -3,6 +3,7 @@
 #![warn(unreachable_pub)]
 #![warn(clippy::semicolon_if_nothing_returned)]
 
+use acvm::ExpressionWidth;
 use clap::Args;
 use fm::{FileId, FileManager};
 use iter_extended::vecmap;
@@ -17,7 +18,6 @@ use noirc_frontend::hir::Context;
 use noirc_frontend::macros_api::MacroProcessor;
 use noirc_frontend::monomorphization::{monomorphize, monomorphize_debug};
 use noirc_frontend::node_interner::FuncId;
-use serde::{Deserialize, Serialize};
 use std::path::Path;
 use tracing::info;
 
@@ -45,8 +45,12 @@ pub const NOIRC_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const NOIR_ARTIFACT_VERSION_STRING: &str =
     concat!(env!("CARGO_PKG_VERSION"), "+", env!("GIT_COMMIT"));
 
-#[derive(Args, Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Args, Clone, Debug, Default)]
 pub struct CompileOptions {
+    /// Override the expression width requested by the backend.
+    #[arg(long, value_parser = parse_expression_width)]
+    pub expression_width: Option<ExpressionWidth>,
+
     /// Force a full recompilation.
     #[arg(long = "force")]
     pub force_compile: bool,
@@ -89,6 +93,16 @@ pub struct CompileOptions {
     /// Force Brillig output (for step debugging)
     #[arg(long, hide = true)]
     pub force_brillig: bool,
+}
+
+fn parse_expression_width(input: &str) -> Result<ExpressionWidth, std::io::Error> {
+    use std::io::{Error, ErrorKind};
+
+    let width = input
+        .parse::<usize>()
+        .map_err(|err| Error::new(ErrorKind::InvalidInput, err.to_string()))?;
+
+    Ok(ExpressionWidth::from(width))
 }
 
 /// Helper type used to signify where only warnings are expected in file diagnostics

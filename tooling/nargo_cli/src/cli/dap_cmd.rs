@@ -1,4 +1,5 @@
 use acvm::acir::native_types::WitnessMap;
+use acvm::ExpressionWidth;
 use backend_interface::Backend;
 use clap::Args;
 use nargo::constants::PROVER_INPUT_FILE;
@@ -27,7 +28,11 @@ use noir_debugger::errors::{DapError, LoadError};
 
 #[derive(Debug, Clone, Args)]
 pub(crate) struct DapCommand {
+    /// Override the expression width requested by the backend.
+    #[arg(long, value_parser = parse_expression_width)]
+    expression_width: Option<ExpressionWidth>,
     #[clap(long)]
+
     preflight_check: bool,
 
     #[clap(long)]
@@ -44,6 +49,16 @@ pub(crate) struct DapCommand {
 
     #[clap(long)]
     preflight_skip_instrumentation: bool,
+}
+
+fn parse_expression_width(input: &str) -> Result<ExpressionWidth, std::io::Error> {
+    use std::io::{Error, ErrorKind};
+
+    let width = input
+        .parse::<usize>()
+        .map_err(|err| Error::new(ErrorKind::InvalidInput, err.to_string()))?;
+
+    Ok(ExpressionWidth::from(width))
 }
 
 fn find_workspace(project_folder: &str, package: Option<&str>) -> Option<Workspace> {
@@ -77,18 +92,15 @@ fn workspace_not_found_error_msg(project_folder: &str, package: Option<&str>) ->
 }
 
 fn load_and_compile_project(
-    backend: &Backend,
     project_folder: &str,
     package: Option<&str>,
     prover_name: &str,
+    expression_width: ExpressionWidth,
     acir_mode: bool,
     skip_instrumentation: bool,
 ) -> Result<(CompiledProgram, WitnessMap), LoadError> {
     let workspace = find_workspace(project_folder, package)
         .ok_or(LoadError::Generic(workspace_not_found_error_msg(project_folder, package)))?;
-    let expression_width = backend
-        .get_backend_info()
-        .map_err(|_| LoadError::Generic("Failed to get backend info".into()))?;
     let package = workspace
         .into_iter()
         .find(|p| p.is_binary())
@@ -120,7 +132,7 @@ fn load_and_compile_project(
 
 fn loop_uninitialized_dap<R: Read, W: Write>(
     mut server: Server<R, W>,
-    backend: &Backend,
+    expression_width: ExpressionWidth,
 ) -> Result<(), DapError> {
     loop {
         let req = match server.poll_request()? {
@@ -168,10 +180,10 @@ fn loop_uninitialized_dap<R: Read, W: Write>(
                 eprintln!("Prover name: {}", prover_name);
 
                 match load_and_compile_project(
-                    backend,
                     project_folder,
                     package,
                     prover_name,
+                    expression_width,
                     generate_acir,
                     skip_instrumentation,
                 ) {
@@ -208,7 +220,7 @@ fn loop_uninitialized_dap<R: Read, W: Write>(
     Ok(())
 }
 
-fn run_preflight_check(backend: &Backend, args: DapCommand) -> Result<(), DapError> {
+fn run_preflight_check(expression_width: ExpressionWidth, args: DapCommand) -> Result<(), DapError> {
     let project_folder = if let Some(project_folder) = args.preflight_project_folder {
         project_folder
     } else {
@@ -219,10 +231,10 @@ fn run_preflight_check(backend: &Backend, args: DapCommand) -> Result<(), DapErr
     let prover_name = args.preflight_prover_name.as_deref().unwrap_or(PROVER_INPUT_FILE);
 
     let _ = load_and_compile_project(
-        backend,
         project_folder.as_str(),
         package,
         prover_name,
+        expression_width,
         args.preflight_generate_acir,
         args.preflight_skip_instrumentation,
     )?;
@@ -235,6 +247,9 @@ pub(crate) fn run(
     args: DapCommand,
     _config: NargoConfig,
 ) -> Result<(), CliError> {
+    let expression_width =
+        args.expression_width.unwrap_or_else(|| backend.get_backend_info_or_default());
+
     // When the --preflight-check flag is present, we run Noir's DAP server in "pre-flight mode", which test runs
     // the DAP initialization code without actually starting the DAP server.
     //
@@ -248,12 +263,12 @@ pub(crate) fn run(
     // the DAP loop is established, which otherwise are considered "out of band" by the maintainers of the DAP spec.
     // More details here: https://github.com/microsoft/vscode/issues/108138
     if args.preflight_check {
-        return run_preflight_check(backend, args).map_err(CliError::DapError);
+        return run_preflight_check(expression_width, args).map_err(CliError::DapError);
     }
 
     let output = BufWriter::new(std::io::stdout());
     let input = BufReader::new(std::io::stdin());
     let server = Server::new(input, output);
 
-    loop_uninitialized_dap(server, backend).map_err(CliError::DapError)
+    loop_uninitialized_dap(server, expression_width).map_err(CliError::DapError)
 }
