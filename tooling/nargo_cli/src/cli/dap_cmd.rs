@@ -32,7 +32,6 @@ pub(crate) struct DapCommand {
     #[arg(long, value_parser = parse_expression_width)]
     expression_width: Option<ExpressionWidth>,
     #[clap(long)]
-
     preflight_check: bool,
 
     #[clap(long)]
@@ -220,7 +219,10 @@ fn loop_uninitialized_dap<R: Read, W: Write>(
     Ok(())
 }
 
-fn run_preflight_check(expression_width: ExpressionWidth, args: DapCommand) -> Result<(), DapError> {
+fn run_preflight_check(
+    expression_width: ExpressionWidth,
+    args: DapCommand,
+) -> Result<(), DapError> {
     let project_folder = if let Some(project_folder) = args.preflight_project_folder {
         project_folder
     } else {

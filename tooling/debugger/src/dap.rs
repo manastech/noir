@@ -551,7 +551,7 @@ impl<'a, R: Read, W: Write, B: BlackBoxFunctionSolver> DapSession<'a, R, W, B> {
         let Some(current_stack_frame) = self.context.current_stack_frame() else {
             return vec![];
         };
-        
+
         let mut variables = current_stack_frame
             .variables
             .iter()
