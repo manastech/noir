@@ -200,21 +200,19 @@ impl<'a, B: BlackBoxFunctionSolver<FieldElement>> ReplDebugger<'a, B> {
     }
 
     fn add_breakpoint_at_line(&mut self, line_number: i64) {
-        let current_file = match self.context.get_current_file() {
-            Some(file) => file.clone(),
-            None => {
-                println!("No current file.");
-                return;
-            }
+        let Some(current_file) = self.context.get_current_file() else {
+            println!("No current file.");
+            return;
         };
 
-        let best_location = self.context.find_opcode_for_source_location(&current_file, line_number);
+        let best_location =
+            self.context.find_opcode_for_source_location(&current_file, line_number);
 
         match best_location {
             Some(location) => {
                 println!("Added breakpoint at line {}", line_number);
                 self.add_breakpoint_at(location)
-            },
+            }
             None => println!("No opcode at line {}", line_number),
         }
     }
