@@ -211,7 +211,10 @@ impl<'a, B: BlackBoxFunctionSolver<FieldElement>> ReplDebugger<'a, B> {
         let best_location = self.context.find_opcode_for_source_location(&current_file, line_number);
 
         match best_location {
-            Some(location) => self.add_breakpoint_at(location),
+            Some(location) => {
+                println!("Added breakpoint at line {}", line_number);
+                self.add_breakpoint_at(location)
+            },
             None => println!("No opcode at line {}", line_number),
         }
     }
