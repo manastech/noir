@@ -180,10 +180,9 @@ impl<'a, B: BlackBoxFunctionSolver<FieldElement>> DebugContext<'a, B> {
 
     /// Returns the `FileId` of the file associated with the innermost function on the call stack.
     pub(super) fn get_current_file(&mut self) -> Option<FileId> {
-        match self.get_current_source_location() {
-            Some(locations) => locations.last().map(|location| location.file),
-            None => None,
-        }
+        self.get_current_source_location()
+            .map(|locations| locations.last().map(|location| location.file))
+            .flatten()
     }
 
     /// Returns the (possible) stack of source locations corresponding to the
