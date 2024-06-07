@@ -202,6 +202,13 @@ impl<'a> ReplDebugger<'a> {
         };
         witness_map
     }
+    fn find_opcode_at_current_file_line(&self, line_number: i64) -> Option<DebugLocation> {
+        let result = self.call_debugger(DebugCommandAPI::FindOpcodeAtCurrentFileLine(line_number));
+        let DebugCommandAPIResult::DebugLocation(location) = result else {
+            panic!("Unwanted result")
+        };
+        location
+    }
     fn finalize(self) -> WitnessStack<FieldElement> {
         let result = self.call_debugger(DebugCommandAPI::Finalize);
         let DebugCommandAPIResult::WitnessStack(stack) = result else { panic!("Unwanted result") };
@@ -350,13 +357,9 @@ impl<'a> ReplDebugger<'a> {
     }
 
     fn add_breakpoint_at_line(&mut self, line_number: i64) {
-        let Some(current_file) = self.context.get_current_file() else {
-            println!("No current file.");
-            return;
-        };
 
         let best_location =
-            self.context.find_opcode_for_source_location(&current_file, line_number);
+            self.find_opcode_at_current_file_line(line_number);
 
         match best_location {
             Some(location) => {
