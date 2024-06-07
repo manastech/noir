@@ -298,6 +298,7 @@ pub(super) enum DebugCommandAPI {
     IsSolved,
     Restart,
     Finalize,
+    FindOpcodeAtCurrentFileLine(i64),
     // execution control
     StepAcirOpcode,
     StepIntoOpcode,
@@ -429,6 +430,11 @@ pub(super) fn start_debugger<'a>(
                     DebugCommandAPIResult::DebugCommandResult(context.next_out())
                 }
                 DebugCommandAPI::Cont => DebugCommandAPIResult::DebugCommandResult(context.cont()),
+                DebugCommandAPI::FindOpcodeAtCurrentFileLine(line) => {
+                    DebugCommandAPIResult::DebugLocation(
+                        context.find_opcode_at_current_file_line(line),
+                    )
+                }
                 DebugCommandAPI::Finalize => {
                     let witness_stack = context.finalize();
                     let _ = result_tx.send(DebugCommandAPIResult::WitnessStack(witness_stack));
@@ -635,6 +641,12 @@ impl<'a, B: BlackBoxFunctionSolver<FieldElement>> DebugContext<'a, B> {
         Some(found_location)
     }
 
+    pub(super) fn find_opcode_at_current_file_line(&self, line: i64) -> Option<DebugLocation> {
+        let file = self.get_current_file()?;
+
+        self.find_opcode_for_source_location(&file, line)
+    }
+
     /// Returns the callstack in source code locations for the currently
     /// executing opcode. This can be `None` if the execution finished (and
     /// `get_current_opcode_location()` returns `None`) or if the opcode is not
@@ -650,7 +662,7 @@ impl<'a, B: BlackBoxFunctionSolver<FieldElement>> DebugContext<'a, B> {
     }
 
     /// Returns the `FileId` of the file associated with the innermost function on the call stack.
-    pub(super) fn get_current_file(&mut self) -> Option<FileId> {
+    fn get_current_file(&self) -> Option<FileId> {
         self.get_current_source_location()
             .and_then(|locations| locations.last().map(|location| location.file))
     }
