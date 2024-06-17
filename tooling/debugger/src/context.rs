@@ -49,28 +49,23 @@ impl std::str::FromStr for DebugLocation {
     type Err = DebugLocationFromStrError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let parts: Vec<_> = s.split(':').collect();
+        let error = Err(DebugLocationFromStrError::InvalidDebugLocationString(s.to_string()));
 
-        if parts.is_empty() || parts.len() > 2 {
-            return Err(DebugLocationFromStrError::InvalidDebugLocationString(s.to_string()));
-        }
-
-        fn parse_components(parts: &Vec<&str>) -> Option<DebugLocation> {
-            match parts.len() {
-                1 => {
-                    let opcode_location = OpcodeLocation::from_str(parts[0]).ok()?;
-                    Some(DebugLocation { circuit_id: 0, opcode_location })
+        match parts.len() {
+            1 => OpcodeLocation::from_str(parts[0]).map_or(error, |opcode_location| {
+                Ok(DebugLocation { circuit_id: 0, opcode_location })
+            }),
+            2 => {
+                let first_part = parts[0].parse().ok();
+                let second_part = OpcodeLocation::from_str(parts[1]).ok();
+                if let (Some(circuit_id), Some(opcode_location)) = (first_part, second_part) {
+                    Ok(DebugLocation { circuit_id, opcode_location })
+                } else {
+                    error
                 }
-                2 => {
-                    let circuit_id = parts[0].parse().ok()?;
-                    let opcode_location = OpcodeLocation::from_str(parts[1]).ok()?;
-                    Some(DebugLocation { circuit_id, opcode_location })
-                }
-                _ => unreachable!("`DebugLocation` has too many components"),
             }
+            _ => error,
         }
-
-        parse_components(&parts)
-            .ok_or(DebugLocationFromStrError::InvalidDebugLocationString(s.to_string()))
     }
 }
 
