@@ -21,6 +21,128 @@ use thiserror::Error;
 use std::collections::BTreeMap;
 use std::collections::{hash_set::Iter, HashSet};
 
+#[derive(Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
+pub struct AddressMap {
+    // A Noir program is composed by
+    // `n` ACIR circuits
+    //       |_ `m` ACIR opcodes
+    //                |_ Acir call
+    //                |_ Acir Brillig function invocation
+    //                           |_ `p` Brillig opcodes
+    //
+    // We need to inline such structure to a one-dimension "virtual address" space
+    // We define the address space as a contiguous space where all ACIR and
+    // Brillig opcodes from all circuits are laid out
+    //
+    // `addresses: Vec<Vec<usize>>``
+    //  * The first vec is `n` sized - one element per ACIR circuit
+    //  * Each nested vec is `m` sized - one element per ACIR opcode in circuit
+    //    * Each element is the "virtual address" of such opcode
+    //
+    // For flattening we map each ACIR circuit and ACIR opcode with a sequential address number
+    // We start by assigning 0 to the very first ACIR opcode and then start accumulating by
+    // traversing by depth-first
+    //
+    //  * an ACIR call accumulates 1 (since it's a single opcode)
+    //  * an ACIR Brillig call accumulates as many opcodes the brillig function has (`p`)
+    //
+    // As a result the flattened addresses list may have "holes".
+    // This holes are a side effect of the brillig function calls
+    //
+    addresses: Vec<Vec<usize>>,
+
+    // virtual address of the last opcode of the program
+    last_valid_address: usize,
+}
+
+impl AddressMap {
+    pub(super) fn new(
+        circuits: &[Circuit<FieldElement>],
+        unconstrained_functions: &[BrilligBytecode<FieldElement>],
+    ) -> Self {
+        let mut result = Vec::with_capacity(circuits.len());
+        let mut circuit_address_start = 0usize;
+
+        for circuit in circuits {
+            let mut circuit_addresses = Vec::with_capacity(circuit.opcodes.len());
+            // push the starting address of the first opcode
+            circuit_addresses.push(circuit_address_start);
+
+            // iterate opcodes _init_ (all but last)
+            let last_opcode_address = circuit.opcodes.iter().take(circuit.opcodes.len() - 1).fold(
+                circuit_address_start,
+                |acc, opcode| {
+                    let acc = acc + Self::calculate_opcode_size(opcode, unconstrained_functions);
+                    // push the starting address of the next opcode
+                    circuit_addresses.push(acc);
+                    acc
+                },
+            );
+            // last opcode size should be next circuit address start
+            let last_opcode = circuit.opcodes.last().expect("There is a last opcode");
+            circuit_address_start = last_opcode_address
+                + Self::calculate_opcode_size(last_opcode, unconstrained_functions);
+
+            result.push(circuit_addresses);
+        }
+        let last_valid_address = circuit_address_start - 1;
+        Self { addresses: result, last_valid_address }
+    }
+
+    fn calculate_opcode_size(
+        opcode: &Opcode<FieldElement>,
+        unconstrained_functions: &[BrilligBytecode<FieldElement>],
+    ) -> usize {
+        match opcode {
+            Opcode::BrilligCall { id, .. } => unconstrained_functions[*id as usize].bytecode.len(),
+            _ => 1,
+        }
+    }
+
+    /// Returns the absolute address of the opcode at the given location.
+    /// Absolute here means accounting for nested Brillig opcodes in BrilligCall
+    /// opcodes.
+    pub fn debug_location_to_address(&self, location: &DebugLocation) -> usize {
+        let circuit_addresses = &self.addresses[location.circuit_id as usize];
+        match &location.opcode_location {
+            OpcodeLocation::Acir(acir_index) => circuit_addresses[*acir_index],
+            OpcodeLocation::Brillig { acir_index, brillig_index } => {
+                circuit_addresses[*acir_index] + *brillig_index
+            }
+        }
+    }
+
+    pub fn address_to_debug_location(&self, address: usize) -> Option<DebugLocation> {
+        if address > self.last_valid_address {
+            return None;
+        }
+        // We binary search if the given address is the first opcode address of each circuit id
+        // if is not, this means that the address itself is "contained" in the previous
+        // circuit indicated by `Err(insert_index)`
+        let circuit_id =
+            match self.addresses.binary_search_by(|addresses| addresses[0].cmp(&address)) {
+                Ok(found_index) => found_index,
+                // This means that the address is not in `insert_index` circuit
+                // because is an `Err`, so it must be included in previous circuit vec of opcodes
+                Err(insert_index) => insert_index - 1,
+            };
+
+        // We binary search among the selected `circuit_id`` list of opcodes
+        // If Err(insert_index) this means that the given address
+        // is a Brillig addresses that's contained in previous index ACIR opcode index
+        let opcode_location = match self.addresses[circuit_id].binary_search(&address) {
+            Ok(found_index) => OpcodeLocation::Acir(found_index),
+            Err(insert_index) => {
+                let acir_index = insert_index - 1;
+                let base_offset = self.addresses[circuit_id][acir_index];
+                let brillig_index = address - base_offset;
+                OpcodeLocation::Brillig { acir_index, brillig_index }
+            }
+        };
+        Some(DebugLocation { circuit_id: circuit_id as u32, opcode_location })
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
 pub struct DebugLocation {
     pub circuit_id: u32,
@@ -109,7 +231,7 @@ pub(super) struct DebugContext<'a, B: BlackBoxFunctionSolver<FieldElement>> {
     // At the end of each vector (both outer and inner) there will be an extra
     // sentinel element with the address of the next opcode. This is only to
     // make bounds checking and working with binary search easier.
-    acir_opcode_addresses: Vec<Vec<usize>>,
+    acir_opcode_addresses: AddressMap,
 }
 
 impl<'a, B: BlackBoxFunctionSolver<FieldElement>> DebugContext<'a, B> {
@@ -124,7 +246,7 @@ impl<'a, B: BlackBoxFunctionSolver<FieldElement>> DebugContext<'a, B> {
         let source_to_opcodes = build_source_to_opcode_debug_mappings(debug_artifact);
         let current_circuit_id: u32 = 0;
         let initial_circuit = &circuits[current_circuit_id as usize];
-        let acir_opcode_addresses = build_acir_opcode_addresses(circuits, unconstrained_functions);
+        let acir_opcode_addresses = AddressMap::new(circuits, unconstrained_functions);
         Self {
             acvm: ACVM::new(
                 blackbox_solver,
@@ -312,39 +434,13 @@ impl<'a, B: BlackBoxFunctionSolver<FieldElement>> DebugContext<'a, B> {
     }
 
     /// Returns the absolute address of the opcode at the given location.
-    /// Absolute here means accounting for nested Brillig opcodes in BrilligCall
-    /// opcodes.
     pub fn debug_location_to_address(&self, location: &DebugLocation) -> usize {
-        let circuit_addresses = &self.acir_opcode_addresses[location.circuit_id as usize];
-        match &location.opcode_location {
-            OpcodeLocation::Acir(acir_index) => circuit_addresses[*acir_index],
-            OpcodeLocation::Brillig { acir_index, brillig_index } => {
-                circuit_addresses[*acir_index] + *brillig_index
-            }
-        }
+        self.acir_opcode_addresses.debug_location_to_address(location)
     }
 
+    // Returns the DebugLocation associated to the given address
     pub fn address_to_debug_location(&self, address: usize) -> Option<DebugLocation> {
-        if address >= *self.acir_opcode_addresses.last()?.first()? {
-            return None;
-        }
-        let circuit_id = match self
-            .acir_opcode_addresses
-            .binary_search_by(|addresses| addresses[0].cmp(&address))
-        {
-            Ok(found_index) => found_index,
-            Err(insert_index) => insert_index - 1,
-        };
-        let opcode_location = match self.acir_opcode_addresses[circuit_id].binary_search(&address) {
-            Ok(found_index) => OpcodeLocation::Acir(found_index),
-            Err(insert_index) => {
-                let acir_index = insert_index - 1;
-                let base_offset = self.acir_opcode_addresses[circuit_id][acir_index];
-                let brillig_index = address - base_offset;
-                OpcodeLocation::Brillig { acir_index, brillig_index }
-            }
-        };
-        Some(DebugLocation { circuit_id: circuit_id as u32, opcode_location })
+        self.acir_opcode_addresses.address_to_debug_location(address)
     }
 
     pub(super) fn render_opcode_at_location(&self, location: &DebugLocation) -> String {
@@ -760,36 +856,6 @@ fn build_source_to_opcode_debug_mappings(
         }
     }
     result.iter_mut().for_each(|(_, file_locations)| file_locations.sort_by_key(|x| (x.0, x.1)));
-
-    result
-}
-
-fn build_acir_opcode_addresses(
-    circuits: &[Circuit<FieldElement>],
-    unconstrained_functions: &[BrilligBytecode<FieldElement>],
-) -> Vec<Vec<usize>> {
-    let mut result = Vec::with_capacity(circuits.len() + 1);
-    let mut circuit_address_start = 0usize;
-    for circuit in circuits {
-        let mut circuit_addresses = Vec::with_capacity(circuit.opcodes.len() + 1);
-        // push the starting address of the first opcode
-        circuit_addresses.push(circuit_address_start);
-        circuit_address_start =
-            circuit.opcodes.iter().fold(circuit_address_start, |acc, opcode| {
-                let acc = acc
-                    + match opcode {
-                        Opcode::BrilligCall { id, .. } => {
-                            unconstrained_functions[*id as usize].bytecode.len()
-                        }
-                        _ => 1,
-                    };
-                // push the starting address of the next opcode
-                circuit_addresses.push(acc);
-                acc
-            });
-        result.push(circuit_addresses);
-    }
-    result.push(vec![circuit_address_start]);
 
     result
 }
