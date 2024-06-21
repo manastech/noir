@@ -30,9 +30,11 @@ pub struct AddressMap {
     //                |_ Acir Brillig function invocation
     //                           |_ `p` Brillig opcodes
     //
-    // We need to inline such structure to a one-dimension "virtual address" space
-    // We define the address space as a contiguous space where all ACIR and
-    // Brillig opcodes from all circuits are laid out
+    // The purpose of this structure is to map the opcode locations in ACIR circuits into
+    // a flat contiguous address space to be able to expose them to the DAP interface.
+    // In this address space, the ACIR circuits are laid out one after the other, and
+    // Brillig functions called from such circuits are expanded inline, replacing
+    // the `BrilligCall` ACIR opcode.
     //
     // `addresses: Vec<Vec<usize>>``
     //  * The first vec is `n` sized - one element per ACIR circuit
@@ -43,11 +45,14 @@ pub struct AddressMap {
     // We start by assigning 0 to the very first ACIR opcode and then start accumulating by
     // traversing by depth-first
     //
-    //  * an ACIR call accumulates 1 (since it's a single opcode)
-    //  * an ACIR Brillig call accumulates as many opcodes the brillig function has (`p`)
+    // Even if the address space is continuous, the `addresses` tree only
+    // keeps track of the ACIR opcodes, since the Brillig opcode addresses can be
+    // calculated from the initial opcode address.
+    // As a result the flattened indexed addresses list may have "holes".
     //
-    // As a result the flattened addresses list may have "holes".
-    // This holes are a side effect of the brillig function calls
+    // If between two consequent `addresses` nodes there is a "hole" (an address jump),
+    // this means that the first one is actually a ACIR Brillig call
+    // which has as many brillig opcodes as `second_address - first_address`
     //
     addresses: Vec<Vec<usize>>,
 
@@ -60,43 +65,27 @@ impl AddressMap {
         circuits: &[Circuit<FieldElement>],
         unconstrained_functions: &[BrilligBytecode<FieldElement>],
     ) -> Self {
-        let mut result = Vec::with_capacity(circuits.len());
-        let mut circuit_address_start = 0usize;
+        let opcode_address_size = |opcode: &Opcode<FieldElement>| {
+            if let Opcode::BrilligCall { id, .. } = opcode {
+                unconstrained_functions[*id as usize].bytecode.len()
+            } else {
+                1
+            }
+        };
+
+        let mut addresses = Vec::with_capacity(circuits.len());
+        let mut next_address = 0usize;
 
         for circuit in circuits {
             let mut circuit_addresses = Vec::with_capacity(circuit.opcodes.len());
-            // push the starting address of the first opcode
-            circuit_addresses.push(circuit_address_start);
-
-            // iterate opcodes _init_ (all but last)
-            let last_opcode_address = circuit.opcodes.iter().take(circuit.opcodes.len() - 1).fold(
-                circuit_address_start,
-                |acc, opcode| {
-                    let acc = acc + Self::calculate_opcode_size(opcode, unconstrained_functions);
-                    // push the starting address of the next opcode
-                    circuit_addresses.push(acc);
-                    acc
-                },
-            );
-            // last opcode size should be next circuit address start
-            let last_opcode = circuit.opcodes.last().expect("There is a last opcode");
-            circuit_address_start = last_opcode_address
-                + Self::calculate_opcode_size(last_opcode, unconstrained_functions);
-
-            result.push(circuit_addresses);
+            for opcode in &circuit.opcodes {
+                circuit_addresses.push(next_address);
+                next_address += opcode_address_size(opcode);
+            }
+            addresses.push(circuit_addresses);
         }
-        let last_valid_address = circuit_address_start - 1;
-        Self { addresses: result, last_valid_address }
-    }
 
-    fn calculate_opcode_size(
-        opcode: &Opcode<FieldElement>,
-        unconstrained_functions: &[BrilligBytecode<FieldElement>],
-    ) -> usize {
-        match opcode {
-            Opcode::BrilligCall { id, .. } => unconstrained_functions[*id as usize].bytecode.len(),
-            _ => 1,
-        }
+        Self { addresses, last_valid_address: next_address - 1 }
     }
 
     /// Returns the absolute address of the opcode at the given location.
