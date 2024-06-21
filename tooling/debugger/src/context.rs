@@ -21,39 +21,39 @@ use thiserror::Error;
 use std::collections::BTreeMap;
 use std::collections::{hash_set::Iter, HashSet};
 
+/// A Noir program is composed by
+/// `n` ACIR circuits
+///       |_ `m` ACIR opcodes
+///                |_ Acir call
+///                |_ Acir Brillig function invocation
+///                           |_ `p` Brillig opcodes
+///
+/// The purpose of this structure is to map the opcode locations in ACIR circuits into
+/// a flat contiguous address space to be able to expose them to the DAP interface.
+/// In this address space, the ACIR circuits are laid out one after the other, and
+/// Brillig functions called from such circuits are expanded inline, replacing
+/// the `BrilligCall` ACIR opcode.
+///
+/// `addresses: Vec<Vec<usize>>`
+///  * The outer vec is `n` sized - one element per ACIR circuit
+///  * Each nested vec is `m` sized - one element per ACIR opcode in circuit
+///    * Each element is the "virtual address" of such opcode
+///
+/// For flattening we map each ACIR circuit and ACIR opcode with a sequential address number
+/// We start by assigning 0 to the very first ACIR opcode and then start accumulating by
+/// traversing by depth-first
+///
+/// Even if the address space is continuous, the `addresses` tree only
+/// keeps track of the ACIR opcodes, since the Brillig opcode addresses can be
+/// calculated from the initial opcode address.
+/// As a result the flattened indexed addresses list may have "holes".
+///
+/// If between two consequent `addresses` nodes there is a "hole" (an address jump),
+/// this means that the first one is actually a ACIR Brillig call
+/// which has as many brillig opcodes as `second_address - first_address`
+///
 #[derive(Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
 pub struct AddressMap {
-    // A Noir program is composed by
-    // `n` ACIR circuits
-    //       |_ `m` ACIR opcodes
-    //                |_ Acir call
-    //                |_ Acir Brillig function invocation
-    //                           |_ `p` Brillig opcodes
-    //
-    // The purpose of this structure is to map the opcode locations in ACIR circuits into
-    // a flat contiguous address space to be able to expose them to the DAP interface.
-    // In this address space, the ACIR circuits are laid out one after the other, and
-    // Brillig functions called from such circuits are expanded inline, replacing
-    // the `BrilligCall` ACIR opcode.
-    //
-    // `addresses: Vec<Vec<usize>>``
-    //  * The first vec is `n` sized - one element per ACIR circuit
-    //  * Each nested vec is `m` sized - one element per ACIR opcode in circuit
-    //    * Each element is the "virtual address" of such opcode
-    //
-    // For flattening we map each ACIR circuit and ACIR opcode with a sequential address number
-    // We start by assigning 0 to the very first ACIR opcode and then start accumulating by
-    // traversing by depth-first
-    //
-    // Even if the address space is continuous, the `addresses` tree only
-    // keeps track of the ACIR opcodes, since the Brillig opcode addresses can be
-    // calculated from the initial opcode address.
-    // As a result the flattened indexed addresses list may have "holes".
-    //
-    // If between two consequent `addresses` nodes there is a "hole" (an address jump),
-    // this means that the first one is actually a ACIR Brillig call
-    // which has as many brillig opcodes as `second_address - first_address`
-    //
     addresses: Vec<Vec<usize>>,
 
     // virtual address of the last opcode of the program
@@ -211,15 +211,6 @@ pub(super) struct DebugContext<'a, B: BlackBoxFunctionSolver<FieldElement>> {
     circuits: &'a [Circuit<FieldElement>],
     unconstrained_functions: &'a [BrilligBytecode<FieldElement>],
 
-    // We define the address space as a contiguous space where all ACIR and
-    // Brillig opcodes from all circuits are laid out.
-    // The first element of the outer vector will contain the addresses at which
-    // all ACIR opcodes of the first circuit are. The second element will
-    // contain the second circuit and so on. Brillig functions should are
-    // expanded on each ACIR Brillig call opcode.
-    // At the end of each vector (both outer and inner) there will be an extra
-    // sentinel element with the address of the next opcode. This is only to
-    // make bounds checking and working with binary search easier.
     acir_opcode_addresses: AddressMap,
 }
 
