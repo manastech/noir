@@ -176,7 +176,7 @@ impl<'b, B: BlackBoxFunctionSolver<F>, F: AcirField> BrilligSolver<'b, F, B> {
                             .collect();
                         Err(OpcodeResolutionError::BrilligFunctionFailed {
                             payload: Some(ResolvedAssertionPayload::String(message)),
-                            call_stack: call_stack,
+                            call_stack,
                         })
                     }
 
