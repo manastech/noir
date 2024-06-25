@@ -161,14 +161,28 @@ impl<'b, B: BlackBoxFunctionSolver<F>, F: AcirField> BrilligSolver<'b, F, B> {
         match vm_status {
             VMStatus::Finished { .. } => Ok(BrilligSolverStatus::Finished),
             VMStatus::InProgress => Ok(BrilligSolverStatus::InProgress),
+            VMStatus::ForeignCallWait { function, inputs } => {
+                Ok(BrilligSolverStatus::ForeignCallWait(ForeignCallWaitInfo { function, inputs }))
+            }
             VMStatus::Failure { reason, call_stack } => {
-                let payload = match reason {
+                match reason {
                     FailureReason::RuntimeError { message } => {
-                        Some(ResolvedAssertionPayload::String(message))
+                        let call_stack = call_stack
+                            .iter()
+                            .map(|brillig_index| OpcodeLocation::Brillig {
+                                acir_index: self.acir_index,
+                                brillig_index: *brillig_index,
+                            })
+                            .collect();
+                        Err(OpcodeResolutionError::BrilligFunctionFailed {
+                            payload: Some(ResolvedAssertionPayload::String(message)),
+                            call_stack: call_stack,
+                        })
                     }
+
                     FailureReason::Trap { revert_data_offset, revert_data_size } => {
                         // Since noir can only revert with strings currently, we can parse return data as a string
-                        if revert_data_size == 0 {
+                        let payload = if revert_data_size == 0 {
                             None
                         } else {
                             let memory = self.vm.get_memory();
@@ -206,22 +220,14 @@ impl<'b, B: BlackBoxFunctionSolver<F>, F: AcirField> BrilligSolver<'b, F, B> {
                                     }))
                                 }
                             }
-                        }
-                    }
-                };
-                Err(OpcodeResolutionError::BrilligFunctionFailed {
-                    payload,
-                    call_stack: call_stack
-                        .iter()
-                        .map(|brillig_index| OpcodeLocation::Brillig {
-                            acir_index: self.acir_index,
-                            brillig_index: *brillig_index,
+                        };
+
+                        Err(OpcodeResolutionError::UnsatisfiedConstrain {
+                            opcode_location: super::ErrorLocation::Unresolved,
+                            payload,
                         })
-                        .collect(),
-                })
-            }
-            VMStatus::ForeignCallWait { function, inputs } => {
-                Ok(BrilligSolverStatus::ForeignCallWait(ForeignCallWaitInfo { function, inputs }))
+                    }
+                }
             }
         }
     }
