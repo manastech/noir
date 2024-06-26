@@ -670,9 +670,9 @@ fn unsatisfied_opcode_resolved_brillig() {
     let solver_status = acvm.solve();
     assert_eq!(
         solver_status,
-        ACVMStatus::Failure(OpcodeResolutionError::BrilligFunctionFailed {
-            payload: None,
-            call_stack: vec![OpcodeLocation::Brillig { acir_index: 0, brillig_index: 3 }]
+        ACVMStatus::Failure(OpcodeResolutionError::UnsatisfiedConstrain {
+            opcode_location: ErrorLocation::Resolved(OpcodeLocation::Acir(0)),
+            payload: None
         }),
         "The first opcode is not satisfiable, expected an error indicating this"
     );
