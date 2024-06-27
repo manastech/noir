@@ -162,19 +162,16 @@ impl<'b, B: BlackBoxFunctionSolver<F>, F: AcirField> BrilligSolver<'b, F, B> {
             VMStatus::Finished { .. } => Ok(BrilligSolverStatus::Finished),
             VMStatus::InProgress => Ok(BrilligSolverStatus::InProgress),
             VMStatus::Failure { reason, call_stack } => {
-                match reason {
+                let call_stack = call_stack
+                    .iter()
+                    .map(|brillig_index| OpcodeLocation::Brillig {
+                        acir_index: self.acir_index,
+                        brillig_index: *brillig_index,
+                    })
+                    .collect();
+                let (payload, found_trap) = match reason {
                     FailureReason::RuntimeError { message } => {
-                        let call_stack = call_stack
-                            .iter()
-                            .map(|brillig_index| OpcodeLocation::Brillig {
-                                acir_index: self.acir_index,
-                                brillig_index: *brillig_index,
-                            })
-                            .collect();
-                        Err(OpcodeResolutionError::BrilligFunctionFailed {
-                            payload: Some(ResolvedAssertionPayload::String(message)),
-                            call_stack,
-                        })
+                        (Some(ResolvedAssertionPayload::String(message)), false)
                     }
 
                     FailureReason::Trap { revert_data_offset, revert_data_size } => {
@@ -218,13 +215,14 @@ impl<'b, B: BlackBoxFunctionSolver<F>, F: AcirField> BrilligSolver<'b, F, B> {
                                 }
                             }
                         };
-
-                        Err(OpcodeResolutionError::UnsatisfiedConstrain {
-                            opcode_location: super::ErrorLocation::Unresolved,
-                            payload,
-                        })
+                        (payload, true)
                     }
-                }
+                };
+                Err(OpcodeResolutionError::BrilligFunctionFailed {
+                    payload,
+                    call_stack,
+                    found_trap,
+                })
             }
             VMStatus::ForeignCallWait { function, inputs } => {
                 Ok(BrilligSolverStatus::ForeignCallWait(ForeignCallWaitInfo { function, inputs }))

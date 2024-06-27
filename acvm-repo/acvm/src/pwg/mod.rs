@@ -116,28 +116,53 @@ impl std::fmt::Display for ErrorLocation {
     }
 }
 
-#[derive(Clone, PartialEq, Eq, Debug, Error)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub enum OpcodeResolutionError<F> {
-    #[error("Cannot solve opcode: {0}")]
-    OpcodeNotSolvable(#[from] OpcodeNotSolvable<F>),
-    #[error("Cannot satisfy constraint")]
+    OpcodeNotSolvable(OpcodeNotSolvable<F>),
     UnsatisfiedConstrain {
         opcode_location: ErrorLocation,
         payload: Option<ResolvedAssertionPayload<F>>,
     },
-    #[error("Index out of bounds, array has size {array_size:?}, but index was {index:?}")]
-    IndexOutOfBounds { opcode_location: ErrorLocation, index: u32, array_size: u32 },
-    #[error("Failed to solve blackbox function: {0}, reason: {1}")]
+    IndexOutOfBounds {
+        opcode_location: ErrorLocation,
+        index: u32,
+        array_size: u32,
+    },
     BlackBoxFunctionFailed(BlackBoxFunc, String),
-    #[error("Failed to solve brillig function")]
     BrilligFunctionFailed {
         call_stack: Vec<OpcodeLocation>,
         payload: Option<ResolvedAssertionPayload<F>>,
+        found_trap: bool,
     },
-    #[error("Attempted to call `main` with a `Call` opcode")]
-    AcirMainCallAttempted { opcode_location: ErrorLocation },
-    #[error("{results_size:?} result values were provided for {outputs_size:?} call output witnesses, most likely due to bad ACIR codegen")]
-    AcirCallOutputsMismatch { opcode_location: ErrorLocation, results_size: u32, outputs_size: u32 },
+    AcirMainCallAttempted {
+        opcode_location: ErrorLocation,
+    },
+    AcirCallOutputsMismatch {
+        opcode_location: ErrorLocation,
+        results_size: u32,
+        outputs_size: u32,
+    },
+}
+
+impl<F: acir::AcirField> std::fmt::Display for OpcodeResolutionError<F> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            OpcodeResolutionError::OpcodeNotSolvable(opcode_not_solvable) => write!(f, "Cannot solve opcode: {}", opcode_not_solvable),
+            OpcodeResolutionError::UnsatisfiedConstrain { .. } => write!(f, "Cannot satisfy constraint"),
+            OpcodeResolutionError::IndexOutOfBounds { array_size, index, .. } => write!(f, "Index out of bounds, array has size {}, but index was {}", array_size, index),
+            OpcodeResolutionError::BlackBoxFunctionFailed(func, reason) => write!(f,"Failed to solve blackbox function: {}, reason: {}", func, reason),
+            OpcodeResolutionError::BrilligFunctionFailed{found_trap: false, .. } => write!(f, "Failed to solve brillig function"),
+            OpcodeResolutionError::BrilligFunctionFailed{found_trap: true, .. } => write!(f, "Cannot satisfy constraint"),
+            OpcodeResolutionError::AcirMainCallAttempted{ .. } => write!(f, "Attempted to call `main` with a `Call` opcode"),
+            OpcodeResolutionError::AcirCallOutputsMismatch {results_size, outputs_size, .. } => write!(f, "{} result values were provided for {} call output witnesses, most likely due to bad ACIR codegen", results_size, outputs_size),
+    }
+    }
+}
+
+impl<F> From<OpcodeNotSolvable<F>> for OpcodeResolutionError<F> {
+    fn from(opcode: OpcodeNotSolvable<F>) -> Self {
+        OpcodeResolutionError::OpcodeNotSolvable(opcode)
+    }
 }
 
 impl<F> From<BlackBoxResolutionError> for OpcodeResolutionError<F> {
@@ -501,7 +526,7 @@ impl<'a, F: AcirField, B: BlackBoxFunctionSolver<F>> ACVM<'a, F, B> {
 
     fn map_brillig_error(&self, mut err: OpcodeResolutionError<F>) -> OpcodeResolutionError<F> {
         match &mut err {
-            OpcodeResolutionError::BrilligFunctionFailed { call_stack, payload } => {
+            OpcodeResolutionError::BrilligFunctionFailed { call_stack, payload, .. } => {
                 // Some brillig errors have static strings as payloads, we can resolve them here
                 let last_location =
                     call_stack.last().expect("Call stacks should have at least one item");

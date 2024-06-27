@@ -672,7 +672,8 @@ fn unsatisfied_opcode_resolved_brillig() {
         solver_status,
         ACVMStatus::Failure(OpcodeResolutionError::BrilligFunctionFailed {
             payload: None,
-            call_stack: vec![OpcodeLocation::Brillig { acir_index: 0, brillig_index: 3 }]
+            call_stack: vec![OpcodeLocation::Brillig { acir_index: 0, brillig_index: 3 }],
+            found_trap: true,
         }),
         "The first opcode is not satisfiable, expected an error indicating this"
     );

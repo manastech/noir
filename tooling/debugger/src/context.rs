@@ -297,7 +297,7 @@ impl<'a, B: BlackBoxFunctionSolver<FieldElement>> DebugContext<'a, B> {
                 self.handle_foreign_call(foreign_call)
             }
             Err(err) => {
-                if let OpcodeResolutionError::UnsatisfiedConstrain { .. } = err {
+                if let OpcodeResolutionError::BrilligFunctionFailed { found_trap: true, .. } = err {
                     // return solver ownership so brillig_solver it has the right opcode location
                     self.brillig_solver = Some(solver);
                 }
