@@ -13,6 +13,7 @@ use acir::{
     AcirField, BlackBoxFunc,
 };
 use acvm_blackbox_solver::BlackBoxResolutionError;
+use brillig_vm::FailureReason;
 
 use self::{
     arithmetic::ExpressionSolver, blackbox::bigint::AcvmBigIntSolver, directives::solve_directives,
@@ -132,7 +133,7 @@ pub enum OpcodeResolutionError<F> {
     BrilligFunctionFailed {
         call_stack: Vec<OpcodeLocation>,
         payload: Option<ResolvedAssertionPayload<F>>,
-        found_trap: bool,
+        reason: FailureReason,
     },
     AcirMainCallAttempted {
         opcode_location: ErrorLocation,
@@ -151,8 +152,8 @@ impl<F: acir::AcirField> std::fmt::Display for OpcodeResolutionError<F> {
             OpcodeResolutionError::UnsatisfiedConstrain { .. } => write!(f, "Cannot satisfy constraint"),
             OpcodeResolutionError::IndexOutOfBounds { array_size, index, .. } => write!(f, "Index out of bounds, array has size {}, but index was {}", array_size, index),
             OpcodeResolutionError::BlackBoxFunctionFailed(func, reason) => write!(f,"Failed to solve blackbox function: {}, reason: {}", func, reason),
-            OpcodeResolutionError::BrilligFunctionFailed{found_trap: false, .. } => write!(f, "Failed to solve brillig function"),
-            OpcodeResolutionError::BrilligFunctionFailed{found_trap: true, .. } => write!(f, "Cannot satisfy constraint"),
+            OpcodeResolutionError::BrilligFunctionFailed{reason: FailureReason::Trap {.. }, .. } => write!(f, "Cannot satisfy constraint"),
+            OpcodeResolutionError::BrilligFunctionFailed{ .. } => write!(f, "Failed to solve brillig function"),
             OpcodeResolutionError::AcirMainCallAttempted{ .. } => write!(f, "Attempted to call `main` with a `Call` opcode"),
             OpcodeResolutionError::AcirCallOutputsMismatch {results_size, outputs_size, .. } => write!(f, "{} result values were provided for {} call output witnesses, most likely due to bad ACIR codegen", results_size, outputs_size),
     }

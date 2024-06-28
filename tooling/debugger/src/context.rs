@@ -1,8 +1,8 @@
 use crate::foreign_calls::DebugForeignCallExecutor;
 use acvm::acir::circuit::brillig::BrilligBytecode;
 use acvm::acir::circuit::{Circuit, Opcode, OpcodeLocation};
-use acvm::acir::native_types::{Witness, WitnessMap};
-use acvm::brillig_vm::MemoryValue;
+use acvm::acir::native_types::{Witness, WitnessMap, WitnessStack};
+use acvm::brillig_vm::{FailureReason, MemoryValue};
 use acvm::pwg::{
     ACVMStatus, AcirCallWaitInfo, BrilligSolver, BrilligSolverStatus, ForeignCallWaitInfo,
     OpcodeNotSolvable, OpcodeResolutionError, StepResult, ACVM,
@@ -297,7 +297,11 @@ impl<'a, B: BlackBoxFunctionSolver<FieldElement>> DebugContext<'a, B> {
                 self.handle_foreign_call(foreign_call)
             }
             Err(err) => {
-                if let OpcodeResolutionError::BrilligFunctionFailed { found_trap: true, .. } = err {
+                if let OpcodeResolutionError::BrilligFunctionFailed {
+                    reason: FailureReason::Trap { .. },
+                    ..
+                } = err
+                {
                     // return solver ownership so brillig_solver it has the right opcode location
                     self.brillig_solver = Some(solver);
                 }

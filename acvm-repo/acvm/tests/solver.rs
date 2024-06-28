@@ -14,7 +14,7 @@ use acir::{
 
 use acvm::pwg::{ACVMStatus, ErrorLocation, ForeignCallWaitInfo, OpcodeResolutionError, ACVM};
 use acvm_blackbox_solver::StubbedBlackBoxSolver;
-use brillig_vm::brillig::HeapValueType;
+use brillig_vm::{brillig::HeapValueType, FailureReason};
 
 // Reenable these test cases once we move the brillig implementation of inversion down into the acvm stdlib.
 
@@ -673,7 +673,7 @@ fn unsatisfied_opcode_resolved_brillig() {
         ACVMStatus::Failure(OpcodeResolutionError::BrilligFunctionFailed {
             payload: None,
             call_stack: vec![OpcodeLocation::Brillig { acir_index: 0, brillig_index: 3 }],
-            found_trap: true,
+            reason: FailureReason::Trap { revert_data_offset: 0, revert_data_size: 0 },
         }),
         "The first opcode is not satisfiable, expected an error indicating this"
     );
