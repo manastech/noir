@@ -165,15 +165,15 @@ impl<'b, B: BlackBoxFunctionSolver<F>, F: AcirField> BrilligSolver<'b, F, B> {
                 Ok(BrilligSolverStatus::ForeignCallWait(ForeignCallWaitInfo { function, inputs }))
             }
             VMStatus::Failure { reason, call_stack } => {
+                let call_stack = call_stack
+                    .iter()
+                    .map(|brillig_index| OpcodeLocation::Brillig {
+                        acir_index: self.acir_index,
+                        brillig_index: *brillig_index,
+                    })
+                    .collect();
                 match reason {
                     FailureReason::RuntimeError { message } => {
-                        let call_stack = call_stack
-                            .iter()
-                            .map(|brillig_index| OpcodeLocation::Brillig {
-                                acir_index: self.acir_index,
-                                brillig_index: *brillig_index,
-                            })
-                            .collect();
                         Err(OpcodeResolutionError::BrilligFunctionFailed {
                             payload: Some(ResolvedAssertionPayload::String(message)),
                             call_stack,
@@ -222,9 +222,9 @@ impl<'b, B: BlackBoxFunctionSolver<F>, F: AcirField> BrilligSolver<'b, F, B> {
                             }
                         };
 
-                        Err(OpcodeResolutionError::UnsatisfiedConstrain {
-                            opcode_location: super::ErrorLocation::Unresolved,
+                        Err(OpcodeResolutionError::BrilligFunctionUnsatisfiedConstrain {
                             payload,
+                            call_stack,
                         })
                     }
                 }
