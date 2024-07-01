@@ -171,7 +171,7 @@ impl<'b, B: BlackBoxFunctionSolver<F>, F: AcirField> BrilligSolver<'b, F, B> {
                     .collect();
                 let payload = self.extract_failure_payload(&reason);
 
-                let resolution_error = |payload, call_stack: Vec<OpcodeLocation>| match &reason {
+                let resolution_error = |payload, call_stack| match &reason {
                     FailureReason::RuntimeError { .. } => {
                         OpcodeResolutionError::BrilligFunctionFailed { payload, call_stack }
                     }
