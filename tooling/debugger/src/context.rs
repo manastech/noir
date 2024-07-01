@@ -1,11 +1,11 @@
 use crate::foreign_calls::DebugForeignCallExecutor;
 use acvm::acir::circuit::brillig::BrilligBytecode;
 use acvm::acir::circuit::{Circuit, Opcode, OpcodeLocation};
-use acvm::acir::native_types::{Witness, WitnessMap, WitnessStack};
+use acvm::acir::native_types::{Witness, WitnessMap};
 use acvm::brillig_vm::{FailureReason, MemoryValue};
 use acvm::pwg::{
-    ACVMStatus, AcirCallWaitInfo, BrilligSolver, BrilligSolverStatus, ForeignCallWaitInfo,
-    OpcodeNotSolvable, OpcodeResolutionError, StepResult, ACVM,
+    ACVMStatus, BrilligSolver, BrilligSolverStatus, ForeignCallWaitInfo,
+    OpcodeResolutionError, StepResult, ACVM,
 };
 use acvm::{BlackBoxFunctionSolver, FieldElement};
 
