@@ -161,9 +161,6 @@ impl<'b, B: BlackBoxFunctionSolver<F>, F: AcirField> BrilligSolver<'b, F, B> {
         match vm_status {
             VMStatus::Finished { .. } => Ok(BrilligSolverStatus::Finished),
             VMStatus::InProgress => Ok(BrilligSolverStatus::InProgress),
-            VMStatus::ForeignCallWait { function, inputs } => {
-                Ok(BrilligSolverStatus::ForeignCallWait(ForeignCallWaitInfo { function, inputs }))
-            }
             VMStatus::Failure { reason, call_stack } => {
                 let call_stack = call_stack
                     .iter()
@@ -228,6 +225,9 @@ impl<'b, B: BlackBoxFunctionSolver<F>, F: AcirField> BrilligSolver<'b, F, B> {
                         })
                     }
                 }
+            }
+            VMStatus::ForeignCallWait { function, inputs } => {
+                Ok(BrilligSolverStatus::ForeignCallWait(ForeignCallWaitInfo { function, inputs }))
             }
         }
     }

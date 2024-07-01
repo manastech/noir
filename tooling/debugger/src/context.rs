@@ -4,8 +4,8 @@ use acvm::acir::circuit::{Circuit, Opcode, OpcodeLocation};
 use acvm::acir::native_types::{Witness, WitnessMap};
 use acvm::brillig_vm::MemoryValue;
 use acvm::pwg::{
-    ACVMStatus, BrilligSolver, BrilligSolverStatus, ForeignCallWaitInfo,
-    OpcodeResolutionError, StepResult, ACVM,
+    ACVMStatus, BrilligSolver, BrilligSolverStatus, ForeignCallWaitInfo, OpcodeResolutionError,
+    StepResult, ACVM,
 };
 use acvm::{BlackBoxFunctionSolver, FieldElement};
 
