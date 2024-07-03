@@ -140,6 +140,7 @@ pub(crate) fn compile_bin_package_for_debugging(
 
 /// Add debugging instrumentation to all parsed files belonging to the package
 /// being compiled
+/// TODO: move to nargo:ops:debug? to reuse form test_cmd
 fn instrument_package_files(
     parsed_files: &mut ParsedFiles,
     file_manager: &FileManager,
@@ -165,6 +166,15 @@ fn instrument_package_files(
     }
 
     debug_instrumenter
+}
+
+pub fn debug_program_async( package: &Package,
+    program: CompiledProgram,
+    prover_name: &str,
+    witness_name: &Option<String>,
+    target_dir: &PathBuf,
+) -> Result<(), CliError> {
+    run_async(package, program, prover_name, witness_name, target_dir)
 }
 
 fn run_async(

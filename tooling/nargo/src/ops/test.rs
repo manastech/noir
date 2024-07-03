@@ -32,6 +32,7 @@ pub fn run_test<B: BlackBoxFunctionSolver<FieldElement>>(
     config: &CompileOptions,
 ) -> TestStatus {
     let compiled_program = compile_no_check(context, config, test_function.get_id(), None, false);
+
     match compiled_program {
         Ok(compiled_program) => {
             // Run the backend to ensure the PWG evaluates functions like std::hash::pedersen,
@@ -59,7 +60,7 @@ pub fn run_test<B: BlackBoxFunctionSolver<FieldElement>>(
 /// that a constraint was never satisfiable.
 /// An example of this is the program `assert(false)`
 /// In that case, we check if the test function should fail, and if so, we return `TestStatus::Pass`.
-fn test_status_program_compile_fail(err: CompileError, test_function: &TestFunction) -> TestStatus {
+pub fn test_status_program_compile_fail(err: CompileError, test_function: &TestFunction) -> TestStatus {
     // The test has failed compilation, but it should never fail. Report error.
     if !test_function.should_fail() {
         return TestStatus::CompileError(err.into());
@@ -72,7 +73,7 @@ fn test_status_program_compile_fail(err: CompileError, test_function: &TestFunct
 ///
 /// We now check whether execution passed/failed and whether it should have
 /// passed/failed to determine the test status.
-fn test_status_program_compile_pass(
+pub fn test_status_program_compile_pass(
     test_function: &TestFunction,
     abi: Abi,
     debug: Vec<DebugInfo>,
