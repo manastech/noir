@@ -168,7 +168,8 @@ fn instrument_package_files(
     debug_instrumenter
 }
 
-pub fn debug_program_async( package: &Package,
+pub fn debug_program_async(
+    package: &Package,
     program: CompiledProgram,
     prover_name: &str,
     witness_name: &Option<String>,

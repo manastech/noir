@@ -1,12 +1,13 @@
 use std::{io::Write, path::PathBuf};
 
-use acvm::{BlackBoxFunctionSolver, FieldElement, acir::native_types::WitnessMap,};
+use acvm::{acir::native_types::WitnessMap, BlackBoxFunctionSolver, FieldElement};
 use bn254_blackbox_solver::Bn254BlackBoxSolver;
 use clap::Args;
 use fm::FileManager;
 use nargo::{
-    insert_all_files_for_workspace_into_file_manager, ops::TestStatus, package::Package, parse_all,
-    prepare_package, ops::DefaultForeignCallExecutor, ops::execute_program, ops::test_status_program_compile_pass, ops::test_status_program_compile_fail,
+    insert_all_files_for_workspace_into_file_manager, ops::execute_program,
+    ops::test_status_program_compile_fail, ops::test_status_program_compile_pass,
+    ops::DefaultForeignCallExecutor, ops::TestStatus, package::Package, parse_all, prepare_package,
 };
 use nargo_toml::{get_package_manifest, resolve_workspace_from_toml, PackageSelection};
 use noirc_driver::{
@@ -14,9 +15,9 @@ use noirc_driver::{
     NOIR_ARTIFACT_VERSION_STRING,
 };
 use noirc_frontend::{
-    graph::CrateName,
-    hir::{FunctionNameMatch, ParsedFiles, Context, def_map::TestFunction},
     debug::DebugInstrumenter,
+    graph::CrateName,
+    hir::{def_map::TestFunction, Context, FunctionNameMatch, ParsedFiles},
 };
 use rayon::prelude::{IntoParallelIterator, ParallelBridge, ParallelIterator};
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
@@ -169,6 +170,7 @@ fn run_tests<S: BlackBoxFunctionSolver<FieldElement> + Default>(
     Ok(test_report)
 }
 
+// FIXME: copied from debug_cmd
 fn instrument_package_files(
     parsed_files: &mut ParsedFiles,
     file_manager: &FileManager,
@@ -210,8 +212,7 @@ fn run_test<S: BlackBoxFunctionSolver<FieldElement> + Default>(
     // We then need to construct a separate copy for each test.
 
     let (mut context, crate_id) = if debug_mode {
-        let debug_instrumenter =
-            instrument_package_files(parsed_files, &file_manager, package);
+        let debug_instrumenter = instrument_package_files(parsed_files, &file_manager, package);
         let (mut context, crate_id) = prepare_package(file_manager, parsed_files, package);
         link_to_debug_crate(&mut context, crate_id);
         context.debug_instrumenter = debug_instrumenter;
@@ -247,7 +248,7 @@ fn run_test<S: BlackBoxFunctionSolver<FieldElement> + Default>(
                 foreign_call_resolver_url,
                 compile_options,
             )
-        } else{
+        } else {
             nargo::ops::run_test(
                 &blackbox_solver,
                 &mut context,
@@ -263,16 +264,15 @@ fn run_test<S: BlackBoxFunctionSolver<FieldElement> + Default>(
 
         let compiled_program: Result<noirc_driver::CompiledProgram, noirc_driver::CompileError> =
             if debug_mode {
-                // TODO: compile for debug
-                compile_no_check(&mut context, compile_options, test_function.get_id(), None, false)
+                compile_no_check_for_debug(&mut context, test_function, compile_options)
             } else {
                 compile_no_check(&mut context, compile_options, test_function.get_id(), None, false)
             };
-        // let compiled_program: Result<noirc_driver::CompiledProgram, noirc_driver::CompileError> = compile_no_check(&mut context, compile_options, test_function.get_id(), None, false);
         match compiled_program {
             Ok(compiled_program) => {
                 let runner = TestRunner::default();
 
+                // TODO: Run debugger
                 let fuzzer = FuzzedExecutor::new(compiled_program.into(), runner);
 
                 let result = fuzzer.fuzz();
@@ -290,7 +290,11 @@ fn run_test<S: BlackBoxFunctionSolver<FieldElement> + Default>(
     }
 }
 
-pub fn debug_test<B: BlackBoxFunctionSolver<FieldElement>>(
+// This is a copy and modified version of nargo::ops::run_test
+// This first iteration of the tester debugger will
+//  - run the debugger with the test code
+//  - once the debugger ends (the user quits) the test will be executed without the debugger
+fn debug_test<B: BlackBoxFunctionSolver<FieldElement>>(
     blackbox_solver: &B,
     package: &Package,
     context: &mut Context,
@@ -299,34 +303,55 @@ pub fn debug_test<B: BlackBoxFunctionSolver<FieldElement>>(
     foreign_call_resolver_url: Option<&str>,
     config: &CompileOptions,
 ) -> TestStatus {
-    let compiled_program = compile_no_check(context, config, test_function.get_id(), None, false);
+    let compiled_program = compile_no_check_for_debug(context, test_function, config);
 
     match compiled_program {
         Ok(compiled_program) => {
             // Run the backend to ensure the PWG evaluates functions like std::hash::pedersen,
             // otherwise constraints involving these expressions will not error.
+            let compiled_program = nargo::ops::transform_program(
+                compiled_program,
+                acvm::acir::circuit::ExpressionWidth::Bounded { width: 4 },
+            ); // TODO: remove expression_with hardcoded value
 
-            let compiled_program =
-            nargo::ops::transform_program(compiled_program, acvm::acir::circuit::ExpressionWidth::Bounded { width: 4 }); // TODO: remove harcoded value
+            // Clone compiled program since the debugger needs ownership of it
+            // we need to have a copy to be able to run the test once the debugger ends
+            let compiled_program_for_test = compiled_program.clone();
 
-            super::debug_cmd::debug_program_async(package, compiled_program, "Prover.toml", &None, &PathBuf::new()); //FIXME:  hardcoded prover_name, witness_name, target_dir
+            // Debug test
+            let debug_result = super::debug_cmd::debug_program_async(
+                package,
+                compiled_program,
+                "Prover.toml",
+                &None,
+                &PathBuf::new(),
+            ); //FIXME:  hardcoded prover_name, witness_name, target_dir
 
-            // let circuit_execution = execute_program(
-            //     &compiled_program.program,
-            //     WitnessMap::new(),
-            //     blackbox_solver,
-            //     &mut DefaultForeignCallExecutor::new(show_output, foreign_call_resolver_url),
-            // );
-            // test_status_program_compile_pass(
-            //     test_function,
-            //     compiled_program.abi,
-            //     compiled_program.debug,
-            //     circuit_execution,
-            // )
-            TestStatus::Pass
+            // Execute test "normally"
+            let circuit_execution = execute_program(
+                &compiled_program_for_test.program,
+                WitnessMap::new(),
+                blackbox_solver,
+                &mut DefaultForeignCallExecutor::new(show_output, foreign_call_resolver_url),
+            );
+            test_status_program_compile_pass(
+                test_function,
+                compiled_program_for_test.abi,
+                compiled_program_for_test.debug,
+                circuit_execution,
+            )
         }
         Err(err) => test_status_program_compile_fail(err, test_function),
     }
+}
+
+fn compile_no_check_for_debug(
+    context: &mut Context,
+    test_function: &TestFunction,
+    config: &CompileOptions,
+) -> Result<noirc_driver::CompiledProgram, noirc_driver::CompileError> {
+    let config = CompileOptions { instrument_debug: true, force_brillig: true, ..*config };
+    compile_no_check(context, &config, test_function.get_id(), None, false)
 }
 
 fn get_tests_in_package(

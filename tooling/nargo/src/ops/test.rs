@@ -60,7 +60,10 @@ pub fn run_test<B: BlackBoxFunctionSolver<FieldElement>>(
 /// that a constraint was never satisfiable.
 /// An example of this is the program `assert(false)`
 /// In that case, we check if the test function should fail, and if so, we return `TestStatus::Pass`.
-pub fn test_status_program_compile_fail(err: CompileError, test_function: &TestFunction) -> TestStatus {
+pub fn test_status_program_compile_fail(
+    err: CompileError,
+    test_function: &TestFunction,
+) -> TestStatus {
     // The test has failed compilation, but it should never fail. Report error.
     if !test_function.should_fail() {
         return TestStatus::CompileError(err.into());
