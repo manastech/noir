@@ -254,6 +254,7 @@ impl<'a, B: BlackBoxFunctionSolver<FieldElement>> ReplDebugger<'a, B> {
                 println!("Stopped at breakpoint in opcode {}", location);
             }
             DebugCommandResult::Error(error) => {
+                self.context.update_last_error_seen(error);
                 println!("ERROR: {}", error);
             }
             _ => (),
@@ -404,6 +405,10 @@ impl<'a, B: BlackBoxFunctionSolver<FieldElement>> ReplDebugger<'a, B> {
 
     fn is_solved(&self) -> bool {
         self.context.is_solved()
+    }
+
+    fn get_last_error(&self) -> &Option<NargoError<FieldElement>> {
+        &self.context.get_last_error()
     }
 
     fn finalize(self) -> WitnessStack<FieldElement> {
@@ -615,6 +620,10 @@ pub fn run<B: BlackBoxFunctionSolver<FieldElement>>(
         let solved_witness_stack = context.into_inner().finalize();
         Ok(Some(solved_witness_stack))
     } else {
-        Ok(None)
+        match context.into_inner().get_last_error(){
+            // Expose the last known error
+            Some(error) =>  Err(*error),
+            None => Ok(None)
+        }
     }
 }
