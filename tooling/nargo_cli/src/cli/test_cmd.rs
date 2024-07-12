@@ -23,7 +23,7 @@ use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 
 use crate::{cli::check_cmd::check_crate_and_report_errors, errors::CliError};
 
-use super::{execution_helpers::{prepare_package_for_debug}, NargoConfig};
+use super::{debug_cmd::DebuggingError, execution_helpers::prepare_package_for_debug, NargoConfig};
 
 /// Run the tests for this program
 #[derive(Debug, Clone, Args)]
@@ -144,9 +144,14 @@ fn run_tests<S: BlackBoxFunctionSolver<FieldElement> + Default>(
     let count_all = test_functions.len();
 
     let debug_mode = if debug_mode && count_all > 1 {
-        println!("[{}] Ignoring --debug flag since debugging multiple test is disabled", package.name);
+        println!(
+            "[{}] Ignoring --debug flag since debugging multiple test is disabled",
+            package.name
+        );
         false
-    } else { debug_mode };
+    } else {
+        debug_mode
+    };
 
     let plural = if count_all == 1 { "" } else { "s" };
     println!("[{}] Running {count_all} test function{plural}", package.name);
@@ -173,7 +178,6 @@ fn run_tests<S: BlackBoxFunctionSolver<FieldElement> + Default>(
     display_test_report(file_manager, package, compile_options, &test_report)?;
     Ok(test_report)
 }
-
 
 fn run_test<S: BlackBoxFunctionSolver<FieldElement> + Default>(
     file_manager: &FileManager,
@@ -212,15 +216,7 @@ fn run_test<S: BlackBoxFunctionSolver<FieldElement> + Default>(
 
     if test_function_has_no_arguments {
         if debug_mode {
-            debug_test(
-                &blackbox_solver,
-                package,
-                &mut context,
-                test_function,
-                show_output,
-                foreign_call_resolver_url,
-                compile_options,
-            )
+            debug_test(package, &mut context, test_function, compile_options)
         } else {
             nargo::ops::run_test(
                 &blackbox_solver,
@@ -267,13 +263,10 @@ fn run_test<S: BlackBoxFunctionSolver<FieldElement> + Default>(
 // This first iteration of the tester debugger will
 //  - run the debugger with the test code
 //  - once the debugger ends (the user quits) the test will be executed without the debugger
-fn debug_test<B: BlackBoxFunctionSolver<FieldElement>>(
-    blackbox_solver: &B,
+fn debug_test(
     package: &Package,
     context: &mut Context,
     test_function: &TestFunction,
-    show_output: bool,
-    foreign_call_resolver_url: Option<&str>,
     config: &CompileOptions,
 ) -> TestStatus {
     let compiled_program = compile_no_check_for_debug(context, test_function, config);
@@ -287,9 +280,8 @@ fn debug_test<B: BlackBoxFunctionSolver<FieldElement>>(
                 acvm::acir::circuit::ExpressionWidth::Bounded { width: 4 },
             ); // TODO: remove expression_with hardcoded value
 
-            // Clone compiled program since the debugger needs ownership of it
-            // we need to have a copy to be able to run the test once the debugger ends
-            let compiled_program_for_test = compiled_program.clone();
+            let abi = compiled_program.abi.clone();
+            let debug = compiled_program.debug.clone();
 
             // Debug test
             let debug_result = super::debug_cmd::debug_program_async(
@@ -300,19 +292,25 @@ fn debug_test<B: BlackBoxFunctionSolver<FieldElement>>(
                 &PathBuf::new(),
             ); //FIXME:  hardcoded prover_name, witness_name, target_dir
 
-            // Execute test "normally"
-            let circuit_execution = execute_program(
-                &compiled_program_for_test.program,
-                WitnessMap::new(),
-                blackbox_solver,
-                &mut DefaultForeignCallExecutor::new(show_output, foreign_call_resolver_url),
-            );
-            test_status_program_compile_pass(
-                test_function,
-                compiled_program_for_test.abi,
-                compiled_program_for_test.debug,
-                circuit_execution,
-            )
+            match debug_result {
+                Ok(circuit_execution) => test_status_program_compile_pass(
+                    test_function,
+                    abi,
+                    debug,
+                    Ok(circuit_execution),
+                ),
+                Err(DebuggingError::ExecutionError(error)) => {
+                    test_status_program_compile_pass(test_function, abi, debug, Err(error))
+                }
+                Err(DebuggingError::ArtifactError(err)) => TestStatus::Fail {
+                    message: format!("Artifact error {}", err),
+                    error_diagnostic: None,
+                }, //TODO: get error diagnostic form CliError
+                Err(DebuggingError::HaltError) => TestStatus::Fail {
+                    message: String::from("Debugger execution halted"),
+                    error_diagnostic: None,
+                },
+            }
         }
         Err(err) => test_status_program_compile_fail(err, test_function),
     }

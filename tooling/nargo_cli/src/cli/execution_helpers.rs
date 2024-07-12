@@ -4,7 +4,8 @@ use nargo::prepare_package;
 use noirc_driver::link_to_debug_crate;
 use noirc_frontend::{
     debug::DebugInstrumenter,
-    hir::{Context, ParsedFiles}, graph::CrateId,
+    graph::CrateId,
+    hir::{Context, ParsedFiles},
 };
 
 pub(crate) fn prepare_package_for_debug<'a>(

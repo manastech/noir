@@ -1,26 +1,24 @@
 use std::path::PathBuf;
 
-use acvm::acir::native_types::WitnessStack;
+use acvm::acir::native_types::{WitnessMap, WitnessStack};
 use acvm::FieldElement;
 use bn254_blackbox_solver::Bn254BlackBoxSolver;
 use clap::Args;
 
-use fm::FileManager;
 use nargo::constants::PROVER_INPUT_FILE;
 use nargo::errors::CompileError;
 use nargo::ops::{compile_program, compile_program_with_debug_instrumenter, report_errors};
 use nargo::package::Package;
 use nargo::workspace::Workspace;
-use nargo::{insert_all_files_for_workspace_into_file_manager, parse_all};
+use nargo::{insert_all_files_for_workspace_into_file_manager, parse_all, NargoError};
 use nargo_toml::{get_package_manifest, resolve_workspace_from_toml, PackageSelection};
+
 use noirc_abi::input_parser::{Format, InputValue};
-use noirc_abi::InputMap;
+use noirc_abi::Abi;
 use noirc_driver::{
     file_manager_with_stdlib, CompileOptions, CompiledProgram, NOIR_ARTIFACT_VERSION_STRING,
 };
-use noirc_frontend::debug::DebugInstrumenter;
 use noirc_frontend::graph::CrateName;
-use noirc_frontend::hir::ParsedFiles;
 
 use super::compile_cmd::get_target_width;
 use super::execution_helpers::instrument_package_files;
@@ -87,7 +85,12 @@ pub(crate) fn run(args: DebugCommand, config: NargoConfig) -> Result<(), CliErro
 
     let compiled_program = nargo::ops::transform_program(compiled_program, target_width);
 
-    run_async(package, compiled_program, &args.prover_name, &args.witness_name, target_dir)
+    match run_async(package, compiled_program, &args.prover_name, &args.witness_name, target_dir) {
+        Ok(_) => Ok(()),
+        Err(DebuggingError::HaltError) => Ok(()),
+        Err(DebuggingError::ExecutionError(nargo_error)) => Err(CliError::from(nargo_error)),
+        Err(DebuggingError::ArtifactError(error)) => Err(error),
+    }
 }
 
 pub(crate) fn compile_bin_package_for_debugging(
@@ -145,7 +148,7 @@ pub(crate) fn debug_program_async(
     prover_name: &str,
     witness_name: &Option<String>,
     target_dir: &PathBuf,
-) -> Result<(), CliError> {
+) -> Result<WitnessStack<FieldElement>, DebuggingError> {
     run_async(package, program, prover_name, witness_name, target_dir)
 }
 
@@ -155,7 +158,7 @@ fn run_async(
     prover_name: &str,
     witness_name: &Option<String>,
     target_dir: &PathBuf,
-) -> Result<(), CliError> {
+) -> Result<WitnessStack<FieldElement>, DebuggingError> {
     use tokio::runtime::Builder;
     let runtime = Builder::new_current_thread().enable_all().build().unwrap();
 
@@ -165,6 +168,7 @@ fn run_async(
             debug_program_and_decode(program, package, prover_name)?;
 
         if let Some(solved_witness_stack) = witness_stack {
+            let witness_stack_result = solved_witness_stack.clone();
             println!("[{}] Circuit witness successfully solved", package.name);
 
             if let Some(return_value) = return_value {
@@ -173,28 +177,44 @@ fn run_async(
 
             if let Some(witness_name) = witness_name {
                 let witness_path =
-                    save_witness_to_dir(solved_witness_stack, witness_name, target_dir)?;
+                    match save_witness_to_dir(solved_witness_stack, witness_name, target_dir) {
+                        Ok(path) => path,
+                        Err(err) => return Err(DebuggingError::ArtifactError(CliError::from(err))),
+                    };
 
                 println!("[{}] Witness saved to {}", package.name, witness_path.display());
             }
+            Ok(witness_stack_result)
         } else {
             println!("Debugger execution halted.");
+            Err(DebuggingError::HaltError)
         }
-
-        Ok(())
     })
+}
+
+#[derive(Debug)]
+pub(crate) enum DebuggingError {
+    ArtifactError(CliError),
+    ExecutionError(NargoError<FieldElement>),
+    HaltError,
 }
 
 fn debug_program_and_decode(
     program: CompiledProgram,
     package: &Package,
     prover_name: &str,
-) -> Result<(Option<InputValue>, Option<WitnessStack<FieldElement>>), CliError> {
-    // Parse the initial witness values from Prover.toml
-    let (inputs_map, _) =
-        read_inputs_from_file(&package.root_dir, prover_name, Format::Toml, &program.abi)?;
+) -> Result<(Option<InputValue>, Option<WitnessStack<FieldElement>>), DebuggingError> {
     let program_abi = program.abi.clone();
-    let witness_stack = debug_program(program, &inputs_map)?;
+
+    let initial_witness = match parse_initial_witness(package, prover_name, &program.abi) {
+        Ok(initial_witness) => initial_witness,
+        Err(err) => return Err(DebuggingError::ArtifactError(err)),
+    };
+
+    let witness_stack = match debug_program(program, initial_witness) {
+        Ok(witness_stack) => witness_stack,
+        Err(error) => return Err(DebuggingError::ExecutionError(error)),
+    };
 
     match witness_stack {
         Some(witness_stack) => {
@@ -202,19 +222,28 @@ fn debug_program_and_decode(
                 .peek()
                 .expect("Should have at least one witness on the stack")
                 .witness;
-            let (_, return_value) = program_abi.decode(main_witness)?;
-            Ok((return_value, Some(witness_stack)))
+            program_abi.decode(main_witness).map_or_else(
+                |err| Err(DebuggingError::ArtifactError(CliError::from(err))),
+                |(_, return_value)| Ok((return_value, Some(witness_stack))),
+            )
         }
         None => Ok((None, None)),
     }
 }
 
+fn parse_initial_witness(
+    package: &Package,
+    prover_name: &str,
+    abi: &Abi,
+) -> Result<WitnessMap<FieldElement>, CliError> {
+    // Parse the initial witness values from Prover.toml
+    let (inputs_map, _) = read_inputs_from_file(&package.root_dir, prover_name, Format::Toml, abi)?;
+    let initial_witness = abi.encode(&inputs_map, None)?;
+    Ok(initial_witness)
+}
 pub(crate) fn debug_program(
     compiled_program: CompiledProgram,
-    inputs_map: &InputMap,
-) -> Result<Option<WitnessStack<FieldElement>>, CliError> {
-    let initial_witness = compiled_program.abi.encode(inputs_map, None)?;
-
+    initial_witness: WitnessMap<FieldElement>,
+) -> Result<Option<WitnessStack<FieldElement>>, NargoError<FieldElement>> {
     noir_debugger::run_repl_session(&Bn254BlackBoxSolver, compiled_program, initial_witness)
-        .map_err(CliError::from)
 }
