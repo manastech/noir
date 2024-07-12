@@ -23,6 +23,7 @@ use noirc_frontend::graph::CrateName;
 use noirc_frontend::hir::ParsedFiles;
 
 use super::compile_cmd::get_target_width;
+use super::execution_helpers::instrument_package_files;
 use super::fs::{inputs::read_inputs_from_file, witness::save_witness_to_dir};
 use super::NargoConfig;
 use crate::errors::CliError;
@@ -138,37 +139,7 @@ pub(crate) fn compile_bin_package_for_debugging(
     )
 }
 
-/// Add debugging instrumentation to all parsed files belonging to the package
-/// being compiled
-/// TODO: move to nargo:ops:debug? to reuse form test_cmd
-fn instrument_package_files(
-    parsed_files: &mut ParsedFiles,
-    file_manager: &FileManager,
-    package: &Package,
-) -> DebugInstrumenter {
-    // Start off at the entry path and read all files in the parent directory.
-    let entry_path_parent = package
-        .entry_path
-        .parent()
-        .unwrap_or_else(|| panic!("The entry path is expected to be a single file within a directory and so should have a parent {:?}", package.entry_path));
-
-    let mut debug_instrumenter = DebugInstrumenter::default();
-
-    for (file_id, parsed_file) in parsed_files.iter_mut() {
-        let file_path =
-            file_manager.path(*file_id).expect("Parsed file ID not found in file manager");
-        for ancestor in file_path.ancestors() {
-            if ancestor == entry_path_parent {
-                // file is in package
-                debug_instrumenter.instrument_module(&mut parsed_file.0);
-            }
-        }
-    }
-
-    debug_instrumenter
-}
-
-pub fn debug_program_async(
+pub(crate) fn debug_program_async(
     package: &Package,
     program: CompiledProgram,
     prover_name: &str,

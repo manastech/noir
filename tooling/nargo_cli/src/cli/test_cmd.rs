@@ -15,7 +15,6 @@ use noirc_driver::{
     NOIR_ARTIFACT_VERSION_STRING,
 };
 use noirc_frontend::{
-    debug::DebugInstrumenter,
     graph::CrateName,
     hir::{def_map::TestFunction, Context, FunctionNameMatch, ParsedFiles},
 };
@@ -24,7 +23,7 @@ use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 
 use crate::{cli::check_cmd::check_crate_and_report_errors, errors::CliError};
 
-use super::NargoConfig;
+use super::{execution_helpers::{prepare_package_for_debug}, NargoConfig};
 
 /// Run the tests for this program
 #[derive(Debug, Clone, Args)]
@@ -144,6 +143,11 @@ fn run_tests<S: BlackBoxFunctionSolver<FieldElement> + Default>(
 
     let count_all = test_functions.len();
 
+    let debug_mode = if debug_mode && count_all > 1 {
+        println!("[{}] Ignoring --debug flag since debugging multiple test is disabled", package.name);
+        false
+    } else { debug_mode };
+
     let plural = if count_all == 1 { "" } else { "s" };
     println!("[{}] Running {count_all} test function{plural}", package.name);
 
@@ -170,33 +174,6 @@ fn run_tests<S: BlackBoxFunctionSolver<FieldElement> + Default>(
     Ok(test_report)
 }
 
-// FIXME: copied from debug_cmd
-fn instrument_package_files(
-    parsed_files: &mut ParsedFiles,
-    file_manager: &FileManager,
-    package: &Package,
-) -> DebugInstrumenter {
-    // Start off at the entry path and read all files in the parent directory.
-    let entry_path_parent = package
-        .entry_path
-        .parent()
-        .unwrap_or_else(|| panic!("The entry path is expected to be a single file within a directory and so should have a parent {:?}", package.entry_path));
-
-    let mut debug_instrumenter = DebugInstrumenter::default();
-
-    for (file_id, parsed_file) in parsed_files.iter_mut() {
-        let file_path =
-            file_manager.path(*file_id).expect("Parsed file ID not found in file manager");
-        for ancestor in file_path.ancestors() {
-            if ancestor == entry_path_parent {
-                // file is in package
-                debug_instrumenter.instrument_module(&mut parsed_file.0);
-            }
-        }
-    }
-
-    debug_instrumenter
-}
 
 fn run_test<S: BlackBoxFunctionSolver<FieldElement> + Default>(
     file_manager: &FileManager,
@@ -212,11 +189,7 @@ fn run_test<S: BlackBoxFunctionSolver<FieldElement> + Default>(
     // We then need to construct a separate copy for each test.
 
     let (mut context, crate_id) = if debug_mode {
-        let debug_instrumenter = instrument_package_files(parsed_files, &file_manager, package);
-        let (mut context, crate_id) = prepare_package(file_manager, parsed_files, package);
-        link_to_debug_crate(&mut context, crate_id);
-        context.debug_instrumenter = debug_instrumenter;
-        (context, crate_id)
+        prepare_package_for_debug(file_manager, parsed_files, package)
     } else {
         prepare_package(file_manager, parsed_files, package)
     };
@@ -350,7 +323,7 @@ fn compile_no_check_for_debug(
     test_function: &TestFunction,
     config: &CompileOptions,
 ) -> Result<noirc_driver::CompiledProgram, noirc_driver::CompileError> {
-    let config = CompileOptions { instrument_debug: true, force_brillig: true, ..*config };
+    let config = CompileOptions { instrument_debug: true, force_brillig: true, ..config.clone() };
     compile_no_check(context, &config, test_function.get_id(), None, false)
 }
 
