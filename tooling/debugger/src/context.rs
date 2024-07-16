@@ -213,7 +213,6 @@ pub(super) struct DebugContext<'a, B: BlackBoxFunctionSolver<FieldElement>> {
     unconstrained_functions: &'a [BrilligBytecode<FieldElement>],
 
     acir_opcode_addresses: AddressMap,
-    last_error: Option<NargoError<FieldElement>>
 }
 
 impl<'a, B: BlackBoxFunctionSolver<FieldElement>> DebugContext<'a, B> {
@@ -249,16 +248,7 @@ impl<'a, B: BlackBoxFunctionSolver<FieldElement>> DebugContext<'a, B> {
             circuits,
             unconstrained_functions,
             acir_opcode_addresses,
-            last_error: None,
         }
-    }
-
-    pub(super) fn get_last_error(&self) -> &Option<NargoError<FieldElement>>{
-        &self.last_error
-    }
-
-    pub(super) fn update_last_error_seen(&mut self, error: &NargoError<FieldElement>) {
-        self.last_error = Some((* error).clone());
     }
 
     pub(super) fn get_opcodes(&self) -> &[Opcode<FieldElement>] {

@@ -85,12 +85,8 @@ pub(crate) fn run(args: DebugCommand, config: NargoConfig) -> Result<(), CliErro
 
     let compiled_program = nargo::ops::transform_program(compiled_program, target_width);
 
-    match run_async(package, compiled_program, &args.prover_name, &args.witness_name, target_dir) {
-        Ok(_) => Ok(()),
-        Err(DebuggingError::HaltError) => Ok(()),
-        Err(DebuggingError::ExecutionError(nargo_error)) => Err(CliError::from(nargo_error)),
-        Err(DebuggingError::ArtifactError(error)) => Err(error),
-    }
+    run_async(package, compiled_program, &args.prover_name, &args.witness_name, target_dir)
+        .map(|_| ())
 }
 
 pub(crate) fn compile_bin_package_for_debugging(
@@ -148,7 +144,7 @@ pub(crate) fn debug_program_async(
     prover_name: &str,
     witness_name: &Option<String>,
     target_dir: &PathBuf,
-) -> Result<WitnessStack<FieldElement>, DebuggingError> {
+) -> Result<DebugResult, CliError> {
     run_async(package, program, prover_name, witness_name, target_dir)
 }
 
@@ -158,76 +154,69 @@ fn run_async(
     prover_name: &str,
     witness_name: &Option<String>,
     target_dir: &PathBuf,
-) -> Result<WitnessStack<FieldElement>, DebuggingError> {
+) -> Result<DebugResult, CliError> {
     use tokio::runtime::Builder;
     let runtime = Builder::new_current_thread().enable_all().build().unwrap();
 
     runtime.block_on(async {
         println!("[{}] Starting debugger", package.name);
-        let (return_value, witness_stack) =
-            debug_program_and_decode(program, package, prover_name)?;
+        let debug_result = debug_program_and_decode(program, package, prover_name)?;
 
-        if let Some(solved_witness_stack) = witness_stack {
-            let witness_stack_result = solved_witness_stack.clone();
-            println!("[{}] Circuit witness successfully solved", package.name);
+        match debug_result {
+            Ok((return_value, witness_stack)) => {
+                let witness_stack_result = witness_stack.clone();
+                println!("[{}] Circuit witness successfully solved", package.name);
 
-            if let Some(return_value) = return_value {
-                println!("[{}] Circuit output: {return_value:?}", package.name);
+                if let Some(return_value) = return_value {
+                    println!("[{}] Circuit output: {return_value:?}", package.name);
+                }
+
+                if let Some(witness_name) = witness_name {
+                    let witness_path =
+                        match save_witness_to_dir(witness_stack, witness_name, target_dir) {
+                            Ok(path) => path,
+                            Err(err) => return Err(CliError::from(err)),
+                        };
+
+                    println!("[{}] Witness saved to {}", package.name, witness_path.display());
+                }
+                Ok(Ok(witness_stack_result))
             }
-
-            if let Some(witness_name) = witness_name {
-                let witness_path =
-                    match save_witness_to_dir(solved_witness_stack, witness_name, target_dir) {
-                        Ok(path) => path,
-                        Err(err) => return Err(DebuggingError::ArtifactError(CliError::from(err))),
-                    };
-
-                println!("[{}] Witness saved to {}", package.name, witness_path.display());
-            }
-            Ok(witness_stack_result)
-        } else {
-            println!("Debugger execution halted.");
-            Err(DebuggingError::HaltError)
+            Err(error) => Ok(Err(error)),
         }
     })
 }
 
-#[derive(Debug)]
-pub(crate) enum DebuggingError {
-    ArtifactError(CliError),
-    ExecutionError(NargoError<FieldElement>),
-    HaltError,
-}
+type DebugResult = Result<WitnessStack<FieldElement>, NargoError<FieldElement>>;
 
+// FIXME: We have nested results to differentiate between the execution result (the inner one - Nargo)
+// and setting up the debugger errors (outer one - CliErrors)
 fn debug_program_and_decode(
     program: CompiledProgram,
     package: &Package,
     prover_name: &str,
-) -> Result<(Option<InputValue>, Option<WitnessStack<FieldElement>>), DebuggingError> {
+) -> Result<
+    Result<(Option<InputValue>, WitnessStack<FieldElement>), NargoError<FieldElement>>,
+    CliError,
+> {
     let program_abi = program.abi.clone();
 
-    let initial_witness = match parse_initial_witness(package, prover_name, &program.abi) {
-        Ok(initial_witness) => initial_witness,
-        Err(err) => return Err(DebuggingError::ArtifactError(err)),
-    };
+    let initial_witness = parse_initial_witness(package, prover_name, &program.abi)?;
+    let debug_result = debug_program(program, initial_witness);
 
-    let witness_stack = match debug_program(program, initial_witness) {
-        Ok(witness_stack) => witness_stack,
-        Err(error) => return Err(DebuggingError::ExecutionError(error)),
-    };
-
-    match witness_stack {
-        Some(witness_stack) => {
-            let main_witness = &witness_stack
-                .peek()
-                .expect("Should have at least one witness on the stack")
-                .witness;
-            program_abi.decode(main_witness).map_or_else(
-                |err| Err(DebuggingError::ArtifactError(CliError::from(err))),
-                |(_, return_value)| Ok((return_value, Some(witness_stack))),
-            )
-        }
-        None => Ok((None, None)),
+    match debug_result {
+        Ok(witness_stack) => match witness_stack {
+            Some(witness_stack) => {
+                let main_witness = &witness_stack
+                    .peek()
+                    .expect("Should have at least one witness on the stack")
+                    .witness;
+                let (_, return_value) = program_abi.decode(main_witness)?;
+                Ok(Ok((return_value, witness_stack)))
+            }
+            None => Err(CliError::ExecutionHalted),
+        },
+        Err(error) => Ok(Err(error)),
     }
 }
 

@@ -1,17 +1,17 @@
 use std::{io::Write, path::PathBuf};
 
-use acvm::{acir::native_types::WitnessMap, BlackBoxFunctionSolver, FieldElement};
+use acvm::{BlackBoxFunctionSolver, FieldElement};
 use bn254_blackbox_solver::Bn254BlackBoxSolver;
 use clap::Args;
 use fm::FileManager;
 use nargo::{
-    insert_all_files_for_workspace_into_file_manager, ops::execute_program,
-    ops::test_status_program_compile_fail, ops::test_status_program_compile_pass,
-    ops::DefaultForeignCallExecutor, ops::TestStatus, package::Package, parse_all, prepare_package,
+    insert_all_files_for_workspace_into_file_manager, ops::test_status_program_compile_fail,
+    ops::test_status_program_compile_pass, ops::TestStatus, package::Package, parse_all,
+    prepare_package,
 };
 use nargo_toml::{get_package_manifest, resolve_workspace_from_toml, PackageSelection};
 use noirc_driver::{
-    check_crate, compile_no_check, file_manager_with_stdlib, link_to_debug_crate, CompileOptions,
+    check_crate, compile_no_check, file_manager_with_stdlib, CompileOptions,
     NOIR_ARTIFACT_VERSION_STRING,
 };
 use noirc_frontend::{
@@ -23,7 +23,7 @@ use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 
 use crate::{cli::check_cmd::check_crate_and_report_errors, errors::CliError};
 
-use super::{debug_cmd::DebuggingError, execution_helpers::prepare_package_for_debug, NargoConfig};
+use super::{execution_helpers::prepare_package_for_debug, NargoConfig};
 
 /// Run the tests for this program
 #[derive(Debug, Clone, Args)]
@@ -293,21 +293,9 @@ fn debug_test(
             ); //FIXME:  hardcoded prover_name, witness_name, target_dir
 
             match debug_result {
-                Ok(circuit_execution) => test_status_program_compile_pass(
-                    test_function,
-                    abi,
-                    debug,
-                    Ok(circuit_execution),
-                ),
-                Err(DebuggingError::ExecutionError(error)) => {
-                    test_status_program_compile_pass(test_function, abi, debug, Err(error))
-                }
-                Err(DebuggingError::ArtifactError(err)) => TestStatus::Fail {
-                    message: format!("Artifact error {}", err),
-                    error_diagnostic: None,
-                }, //TODO: get error diagnostic form CliError
-                Err(DebuggingError::HaltError) => TestStatus::Fail {
-                    message: String::from("Debugger execution halted"),
+                Ok(result) => test_status_program_compile_pass(test_function, abi, debug, result),
+                Err(error) => TestStatus::Fail {
+                    message: format!("Debugger failed: {}", error),
                     error_diagnostic: None,
                 },
             }
