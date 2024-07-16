@@ -74,7 +74,7 @@ pub(crate) fn run(args: TestCommand, config: NargoConfig) -> Result<(), CliError
 
     let mut workspace_file_manager = file_manager_with_stdlib(&workspace.root_dir);
     insert_all_files_for_workspace_into_file_manager(&workspace, &mut workspace_file_manager);
-    let mut parsed_files = parse_all(&workspace_file_manager);
+    let parsed_files = parse_all(&workspace_file_manager);
 
     let pattern = match &args.test_name {
         Some(name) => {
