@@ -236,8 +236,6 @@ pub fn map_execution_error<F: AcirField>(
         _ => None,
     };
 
-    println!("Assertion payload: {:?}", assertion_payload);
-
     match assertion_payload {
         Some(payload) => ExecutionError::AssertionFailed(
             payload,
