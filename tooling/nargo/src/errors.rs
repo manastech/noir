@@ -218,3 +218,34 @@ pub fn try_to_diagnose_runtime_error(
             .with_call_stack(source_locations),
     )
 }
+
+pub fn map_execution_error<F: AcirField>(error: OpcodeResolutionError<F>, call_stack: &Vec<ResolvedOpcodeLocation>) -> ExecutionError<F> {
+
+    let call_stack = match &error {
+        OpcodeResolutionError::UnsatisfiedConstrain { .. }
+        | OpcodeResolutionError::IndexOutOfBounds { .. } 
+        | OpcodeResolutionError::BrilligFunctionFailed { .. }
+        => {
+            Some(call_stack.clone())
+        }
+        _ => None,
+    };
+
+    let assertion_payload: Option<ResolvedAssertionPayload<F>> = match &error {
+        OpcodeResolutionError::BrilligFunctionFailed { payload, .. }
+        | OpcodeResolutionError::UnsatisfiedConstrain { payload, .. } => {
+            payload.clone()
+        }
+        _ => None,
+    };
+
+    println!("Assertion payload: {:?}", assertion_payload);
+
+    match assertion_payload {
+        Some(payload) => ExecutionError::AssertionFailed(
+            payload,
+            call_stack.expect("Should have call stack for an assertion failure"),
+        ),
+        None => ExecutionError::SolvingError(error, call_stack),
+    }
+}

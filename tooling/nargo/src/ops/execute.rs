@@ -1,13 +1,13 @@
 use acvm::acir::circuit::brillig::BrilligBytecode;
 use acvm::acir::circuit::{
-    OpcodeLocation, Program, ResolvedAssertionPayload, ResolvedOpcodeLocation,
+    OpcodeLocation, Program, ResolvedOpcodeLocation,
 };
 use acvm::acir::native_types::WitnessStack;
 use acvm::pwg::{ACVMStatus, ErrorLocation, OpcodeNotSolvable, OpcodeResolutionError, ACVM};
 use acvm::{acir::circuit::Circuit, acir::native_types::WitnessMap};
 use acvm::{AcirField, BlackBoxFunctionSolver};
 
-use crate::errors::ExecutionError;
+use crate::errors::{map_execution_error, ExecutionError};
 use crate::NargoError;
 
 use super::foreign_calls::ForeignCallExecutor;
@@ -81,7 +81,10 @@ impl<'a, F: AcirField, B: BlackBoxFunctionSolver<F>, E: ForeignCallExecutor<F>>
                     unreachable!("Execution should not stop while in `InProgress` state.")
                 }
                 ACVMStatus::Failure(error) => {
-                    let call_stack = match &error {
+                    
+                    // TODO: should we push the last location to the stack in the debugger context as well?
+                    // or is the stack already updated?
+                    match &error {
                         OpcodeResolutionError::UnsatisfiedConstrain {
                             opcode_location: ErrorLocation::Resolved(opcode_location),
                             ..
@@ -95,7 +98,6 @@ impl<'a, F: AcirField, B: BlackBoxFunctionSolver<F>, E: ForeignCallExecutor<F>>
                                 opcode_location: *opcode_location,
                             };
                             self.call_stack.push(resolved_location);
-                            Some(self.call_stack.clone())
                         }
                         OpcodeResolutionError::BrilligFunctionFailed { call_stack, .. } => {
                             let brillig_call_stack =
@@ -104,26 +106,12 @@ impl<'a, F: AcirField, B: BlackBoxFunctionSolver<F>, E: ForeignCallExecutor<F>>
                                     opcode_location: *location,
                                 });
                             self.call_stack.extend(brillig_call_stack);
-                            Some(self.call_stack.clone())
                         }
-                        _ => None,
+                        _ => (),
                     };
 
-                    let assertion_payload: Option<ResolvedAssertionPayload<F>> = match &error {
-                        OpcodeResolutionError::BrilligFunctionFailed { payload, .. }
-                        | OpcodeResolutionError::UnsatisfiedConstrain { payload, .. } => {
-                            payload.clone()
-                        }
-                        _ => None,
-                    };
+                    return Err(NargoError::ExecutionError(map_execution_error(error, &self.call_stack)))
 
-                    return Err(NargoError::ExecutionError(match assertion_payload {
-                        Some(payload) => ExecutionError::AssertionFailed(
-                            payload,
-                            call_stack.expect("Should have call stack for an assertion failure"),
-                        ),
-                        None => ExecutionError::SolvingError(error, call_stack),
-                    }));
                 }
                 ACVMStatus::RequiresForeignCall(foreign_call) => {
                     let foreign_call_result = self.foreign_call_executor.execute(&foreign_call)?;

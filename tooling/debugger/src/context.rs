@@ -1,7 +1,7 @@
 use crate::foreign_calls::DebugForeignCallExecutor;
 use acvm::acir::brillig::BitSize;
 use acvm::acir::circuit::brillig::BrilligBytecode;
-use acvm::acir::circuit::{Circuit, Opcode, OpcodeLocation};
+use acvm::acir::circuit::{Circuit, Opcode, OpcodeLocation, ResolvedOpcodeLocation};
 use acvm::acir::native_types::{Witness, WitnessMap, WitnessStack};
 use acvm::brillig_vm::MemoryValue;
 use acvm::pwg::{
@@ -12,7 +12,7 @@ use acvm::{BlackBoxFunctionSolver, FieldElement};
 
 use codespan_reporting::files::{Files, SimpleFile};
 use fm::FileId;
-use nargo::errors::{ExecutionError, Location};
+use nargo::errors::{map_execution_error, ExecutionError, Location};
 use nargo::NargoError;
 use noirc_artifacts::debug::{DebugArtifact, StackFrame};
 use noirc_driver::DebugFile;
@@ -316,6 +316,15 @@ impl<'a, B: BlackBoxFunctionSolver<FieldElement>> DebugContext<'a, B> {
         frames
     }
 
+    fn get_resolved_call_stack(&self) -> Vec<ResolvedOpcodeLocation> {
+        self.get_call_stack().iter().map(|debug_loc| {
+            acvm::acir::circuit::ResolvedOpcodeLocation { 
+                acir_function_index: usize::try_from(debug_loc.circuit_id).unwrap(), // FIXME: is this ok? why circuit_id is u32?
+                opcode_location: debug_loc.opcode_location
+            }
+        }).collect() 
+    }
+
     pub(super) fn is_source_location_in_debug_module(&self, location: &Location) -> bool {
         self.debug_artifact
             .file_map
@@ -475,7 +484,7 @@ impl<'a, B: BlackBoxFunctionSolver<FieldElement>> DebugContext<'a, B> {
             Err(err) => {
                 self.brillig_solver = Some(solver);
                 DebugCommandResult::Error(NargoError::ExecutionError(
-                ExecutionError::SolvingError(err, None),
+                    map_execution_error(err, &self.get_resolved_call_stack())
                 ))
             },
         }
@@ -576,9 +585,11 @@ impl<'a, B: BlackBoxFunctionSolver<FieldElement>> DebugContext<'a, B> {
                     DebugCommandResult::Ok
                 }
             }
-            ACVMStatus::Failure(error) => DebugCommandResult::Error(NargoError::ExecutionError(
-                ExecutionError::SolvingError(error, None),
-            )),
+            ACVMStatus::Failure(error) => {
+                DebugCommandResult::Error(NargoError::ExecutionError(
+                    map_execution_error(error, &self.get_resolved_call_stack())
+                ))
+            },
             ACVMStatus::RequiresForeignCall(foreign_call) => self.handle_foreign_call(foreign_call),
             ACVMStatus::RequiresAcirCall(call_info) => self.handle_acir_call(call_info),
         }
