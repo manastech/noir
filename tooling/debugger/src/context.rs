@@ -472,9 +472,12 @@ impl<'a, B: BlackBoxFunctionSolver<FieldElement>> DebugContext<'a, B> {
                 self.brillig_solver = Some(solver);
                 self.handle_foreign_call(foreign_call)
             }
-            Err(err) => DebugCommandResult::Error(NargoError::ExecutionError(
+            Err(err) => {
+                self.brillig_solver = Some(solver);
+                DebugCommandResult::Error(NargoError::ExecutionError(
                 ExecutionError::SolvingError(err, None),
-            )),
+                ))
+            },
         }
     }
 
