@@ -237,7 +237,8 @@ fn run_test<S: BlackBoxFunctionSolver<FieldElement> + Default>(
                 package.name
             );
         }
-        let compiled_program: Result<noirc_driver::CompiledProgram, noirc_driver::CompileError> = compile_no_check(&mut context, compile_options, test_function.get_id(), None, false);
+        let compiled_program: Result<noirc_driver::CompiledProgram, noirc_driver::CompileError> =
+            compile_no_check(&mut context, compile_options, test_function.get_id(), None, false);
         match compiled_program {
             Ok(compiled_program) => {
                 let runner = TestRunner::default();

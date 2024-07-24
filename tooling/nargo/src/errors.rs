@@ -219,23 +219,20 @@ pub fn try_to_diagnose_runtime_error(
     )
 }
 
-pub fn map_execution_error<F: AcirField>(error: OpcodeResolutionError<F>, call_stack: &Vec<ResolvedOpcodeLocation>) -> ExecutionError<F> {
-
+pub fn map_execution_error<F: AcirField>(
+    error: OpcodeResolutionError<F>,
+    call_stack: &Vec<ResolvedOpcodeLocation>,
+) -> ExecutionError<F> {
     let call_stack = match &error {
         OpcodeResolutionError::UnsatisfiedConstrain { .. }
-        | OpcodeResolutionError::IndexOutOfBounds { .. } 
-        | OpcodeResolutionError::BrilligFunctionFailed { .. }
-        => {
-            Some(call_stack.clone())
-        }
+        | OpcodeResolutionError::IndexOutOfBounds { .. }
+        | OpcodeResolutionError::BrilligFunctionFailed { .. } => Some(call_stack.clone()),
         _ => None,
     };
 
     let assertion_payload: Option<ResolvedAssertionPayload<F>> = match &error {
         OpcodeResolutionError::BrilligFunctionFailed { payload, .. }
-        | OpcodeResolutionError::UnsatisfiedConstrain { payload, .. } => {
-            payload.clone()
-        }
+        | OpcodeResolutionError::UnsatisfiedConstrain { payload, .. } => payload.clone(),
         _ => None,
     };
 

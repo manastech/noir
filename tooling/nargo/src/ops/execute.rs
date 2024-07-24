@@ -1,7 +1,5 @@
 use acvm::acir::circuit::brillig::BrilligBytecode;
-use acvm::acir::circuit::{
-    OpcodeLocation, Program, ResolvedOpcodeLocation,
-};
+use acvm::acir::circuit::{OpcodeLocation, Program, ResolvedOpcodeLocation};
 use acvm::acir::native_types::WitnessStack;
 use acvm::pwg::{ACVMStatus, ErrorLocation, OpcodeNotSolvable, OpcodeResolutionError, ACVM};
 use acvm::{acir::circuit::Circuit, acir::native_types::WitnessMap};
@@ -81,7 +79,6 @@ impl<'a, F: AcirField, B: BlackBoxFunctionSolver<F>, E: ForeignCallExecutor<F>>
                     unreachable!("Execution should not stop while in `InProgress` state.")
                 }
                 ACVMStatus::Failure(error) => {
-                    
                     // TODO: should we push the last location to the stack in the debugger context as well?
                     // or is the stack already updated?
                     match &error {
@@ -110,8 +107,10 @@ impl<'a, F: AcirField, B: BlackBoxFunctionSolver<F>, E: ForeignCallExecutor<F>>
                         _ => (),
                     };
 
-                    return Err(NargoError::ExecutionError(map_execution_error(error, &self.call_stack)))
-
+                    return Err(NargoError::ExecutionError(map_execution_error(
+                        error,
+                        &self.call_stack,
+                    )));
                 }
                 ACVMStatus::RequiresForeignCall(foreign_call) => {
                     let foreign_call_result = self.foreign_call_executor.execute(&foreign_call)?;

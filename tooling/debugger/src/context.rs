@@ -317,12 +317,17 @@ impl<'a, B: BlackBoxFunctionSolver<FieldElement>> DebugContext<'a, B> {
     }
 
     fn get_resolved_call_stack(&self) -> Vec<ResolvedOpcodeLocation> {
-        self.get_call_stack().iter().map(|debug_loc| {
-            acvm::acir::circuit::ResolvedOpcodeLocation { 
-                acir_function_index: usize::try_from(debug_loc.circuit_id).unwrap(), // FIXME: is this ok? why circuit_id is u32?
-                opcode_location: debug_loc.opcode_location
-            }
-        }).collect() 
+        self.get_call_stack()
+            .iter()
+            .map(|debug_loc| {
+                // usize should be at least u32 for supported platforms
+                let acir_function_index = usize::try_from(debug_loc.circuit_id).unwrap();
+                acvm::acir::circuit::ResolvedOpcodeLocation {
+                    acir_function_index,
+                    opcode_location: debug_loc.opcode_location,
+                }
+            })
+            .collect()
     }
 
     pub(super) fn is_source_location_in_debug_module(&self, location: &Location) -> bool {
@@ -483,10 +488,11 @@ impl<'a, B: BlackBoxFunctionSolver<FieldElement>> DebugContext<'a, B> {
             }
             Err(err) => {
                 self.brillig_solver = Some(solver);
-                DebugCommandResult::Error(NargoError::ExecutionError(
-                    map_execution_error(err, &self.get_resolved_call_stack())
-                ))
-            },
+                DebugCommandResult::Error(NargoError::ExecutionError(map_execution_error(
+                    err,
+                    &self.get_resolved_call_stack(),
+                )))
+            }
         }
     }
 
@@ -585,11 +591,9 @@ impl<'a, B: BlackBoxFunctionSolver<FieldElement>> DebugContext<'a, B> {
                     DebugCommandResult::Ok
                 }
             }
-            ACVMStatus::Failure(error) => {
-                DebugCommandResult::Error(NargoError::ExecutionError(
-                    map_execution_error(error, &self.get_resolved_call_stack())
-                ))
-            },
+            ACVMStatus::Failure(error) => DebugCommandResult::Error(NargoError::ExecutionError(
+                map_execution_error(error, &self.get_resolved_call_stack()),
+            )),
             ACVMStatus::RequiresForeignCall(foreign_call) => self.handle_foreign_call(foreign_call),
             ACVMStatus::RequiresAcirCall(call_info) => self.handle_acir_call(call_info),
         }
