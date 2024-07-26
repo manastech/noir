@@ -15,6 +15,8 @@ use crate::{
 const ARROW: &str = "▶\u{fe0e}";
 const TEST_COMMAND: &str = "nargo.test";
 const TEST_CODELENS_TITLE: &str = "Run Test";
+const DEBUG_TEST_COMMAND: &str = "nargo.debug.test";
+const DEBUG_TEST_CODELENS_TITLE: &str = "Debug test";
 const COMPILE_COMMAND: &str = "nargo.compile";
 const COMPILE_CODELENS_TITLE: &str = "Compile";
 const INFO_COMMAND: &str = "nargo.info";
@@ -120,7 +122,7 @@ pub(crate) fn collect_lenses_for_package(
             arguments: Some(
                 [
                     package_selection_args(workspace, package),
-                    vec!["--exact".into(), func_name.into()],
+                    vec!["--exact".into(), serde_json::Value::from(String::from(&func_name))],
                 ]
                 .concat(),
             ),
@@ -129,6 +131,22 @@ pub(crate) fn collect_lenses_for_package(
         let test_lens = CodeLens { range, command: Some(test_command), data: None };
 
         lenses.push(test_lens);
+
+        let debug_test_command = Command {
+            title: DEBUG_TEST_CODELENS_TITLE.to_string(),
+            command: DEBUG_TEST_COMMAND.into(),
+            arguments: Some(
+                [
+                    package_selection_args(workspace, package),
+                    vec!["--exact".into(), serde_json::Value::from(String::from(&func_name))],
+                ]
+                .concat(),
+            ),
+        };
+
+        let debug_test_lens = CodeLens { range, command: Some(debug_test_command), data: None };
+
+        lenses.push(debug_test_lens);
     }
 
     if package.is_binary() {
