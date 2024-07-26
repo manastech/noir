@@ -50,6 +50,9 @@ pub(crate) struct DapCommand {
 
     #[clap(long)]
     preflight_skip_instrumentation: bool,
+
+    #[clap(long)]
+    preflight_test_name: Option<String>,
 }
 
 fn parse_expression_width(input: &str) -> Result<ExpressionWidth, std::io::Error> {
@@ -102,7 +105,9 @@ fn load_and_compile_project(
     expression_width: ExpressionWidth,
     acir_mode: bool,
     skip_instrumentation: bool,
+    test_name: Option<&str>
 ) -> Result<(CompiledProgram, WitnessMap<FieldElement>), LoadError> {
+    println!("***** Test name {:?}", test_name);
     let workspace = find_workspace(project_folder, package)
         .ok_or(LoadError::Generic(workspace_not_found_error_msg(project_folder, package)))?;
     let package = workspace
@@ -165,6 +170,7 @@ fn loop_uninitialized_dap<R: Read, W: Write>(
                     server.respond(req.error("Missing project folder argument"))?;
                     continue;
                 };
+                let test_name = additional_data.get("testName").and_then(|v| v.as_str());
 
                 let project_folder = project_folder.as_str();
                 let package = additional_data.get("package").and_then(|v| v.as_str());
@@ -191,6 +197,7 @@ fn loop_uninitialized_dap<R: Read, W: Write>(
                     expression_width,
                     generate_acir,
                     skip_instrumentation,
+                    test_name,
                 ) {
                     Ok((compiled_program, initial_witness)) => {
                         server.respond(req.ack()?)?;
@@ -234,6 +241,7 @@ fn run_preflight_check(
     };
 
     let package = args.preflight_package.as_deref();
+    let test_name = args.preflight_test_name.as_deref();
     let prover_name = args.preflight_prover_name.as_deref().unwrap_or(PROVER_INPUT_FILE);
 
     let _ = load_and_compile_project(
@@ -243,6 +251,7 @@ fn run_preflight_check(
         expression_width,
         args.preflight_generate_acir,
         args.preflight_skip_instrumentation,
+        test_name,
     )?;
 
     Ok(())
