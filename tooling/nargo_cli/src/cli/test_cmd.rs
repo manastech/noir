@@ -306,7 +306,7 @@ fn debug_test(
     }
 }
 
-fn compile_no_check_for_debug(
+pub(crate) fn compile_no_check_for_debug(
     context: &mut Context,
     test_function: &TestFunction,
     config: &CompileOptions,
@@ -315,7 +315,7 @@ fn compile_no_check_for_debug(
     compile_no_check(context, &config, test_function.get_id(), None, false)
 }
 
-fn get_tests_in_package(
+pub(crate) fn get_tests_in_package(
     file_manager: &FileManager,
     parsed_files: &ParsedFiles,
     package: &Package,

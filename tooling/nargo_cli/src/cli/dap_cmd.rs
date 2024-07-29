@@ -5,10 +5,14 @@ use bn254_blackbox_solver::Bn254BlackBoxSolver;
 use clap::Args;
 use nargo::constants::PROVER_INPUT_FILE;
 use nargo::workspace::Workspace;
+use nargo::{insert_all_files_for_workspace_into_file_manager, package::Package, parse_all};
 use nargo_toml::{get_package_manifest, resolve_workspace_from_toml, PackageSelection};
 use noirc_abi::input_parser::Format;
-use noirc_driver::{CompileOptions, CompiledProgram, NOIR_ARTIFACT_VERSION_STRING};
-use noirc_frontend::graph::CrateName;
+use noirc_driver::{
+    check_crate, file_manager_with_stdlib, CompileOptions, CompiledProgram,
+    NOIR_ARTIFACT_VERSION_STRING,
+};
+use noirc_frontend::{graph::CrateName, hir::FunctionNameMatch};
 
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::Path;
@@ -19,8 +23,10 @@ use dap::server::Server;
 use dap::types::Capabilities;
 use serde_json::Value;
 
-use super::debug_cmd::compile_bin_package_for_debugging;
+use super::debug_cmd::{compile_bin_package_for_debugging, compile_options_for_debugging};
+use super::execution_helpers::prepare_package_for_debug;
 use super::fs::inputs::read_inputs_from_file;
+use super::test_cmd::{compile_no_check_for_debug, get_tests_in_package};
 use crate::errors::CliError;
 
 use super::NargoConfig;
@@ -105,24 +111,27 @@ fn load_and_compile_project(
     expression_width: ExpressionWidth,
     acir_mode: bool,
     skip_instrumentation: bool,
-    test_name: Option<&str>
+    test_name: Option<&str>,
 ) -> Result<(CompiledProgram, WitnessMap<FieldElement>), LoadError> {
-    println!("***** Test name {:?}", test_name);
     let workspace = find_workspace(project_folder, package)
         .ok_or(LoadError::Generic(workspace_not_found_error_msg(project_folder, package)))?;
     let package = workspace
         .into_iter()
         .find(|p| p.is_binary())
-        .ok_or(LoadError::Generic("No matching binary packages found in workspace".into()))?;
+        .ok_or(LoadError::Generic("No matching binary packages found in workspace".into()))?
+        .clone();
 
-    let compiled_program = compile_bin_package_for_debugging(
-        &workspace,
-        package,
-        acir_mode,
-        skip_instrumentation,
-        CompileOptions::default(),
-    )
-    .map_err(|_| LoadError::Generic("Failed to compile project".into()))?;
+    let compile_options =
+        compile_options_for_debugging(acir_mode, skip_instrumentation, CompileOptions::default());
+
+    let compiled_program = if test_name.is_some() {
+        let test_name = test_name.unwrap();
+        load_and_compile_test_function(test_name, workspace, &package, &compile_options)
+    } else {
+        let compiled = compile_bin_package_for_debugging(&workspace, &package, &compile_options)
+            .map_err(|_| LoadError::Generic("Failed to compile project".into()))?;
+        Ok(compiled)
+    }?;
 
     let compiled_program = nargo::ops::transform_program(compiled_program, expression_width);
 
@@ -137,6 +146,54 @@ fn load_and_compile_project(
         .map_err(|_| LoadError::Generic("Failed to encode inputs".into()))?;
 
     Ok((compiled_program, initial_witness))
+}
+
+fn load_and_compile_test_function(
+    test_name: &str,
+    workspace: Workspace,
+    package: &Package,
+    compile_options: &CompileOptions,
+) -> Result<CompiledProgram, LoadError> {
+    let mut workspace_file_manager = file_manager_with_stdlib(&workspace.root_dir);
+    insert_all_files_for_workspace_into_file_manager(&workspace, &mut workspace_file_manager);
+    let mut parsed_files = parse_all(&workspace_file_manager);
+
+    let test_functions = get_tests_in_package(
+        &workspace_file_manager,
+        &parsed_files,
+        package,
+        FunctionNameMatch::Exact(test_name),
+        compile_options,
+    );
+
+    let Ok(test_functions) = test_functions else {
+        return Err(LoadError::Generic(String::from("Couldn't get function")));
+    };
+    if test_functions.len() > 1 {
+        return Err(LoadError::Generic(String::from(
+            "Cannot debug more than one test at the time",
+        )));
+    };
+
+    let (mut context, crate_id) =
+        prepare_package_for_debug(&workspace_file_manager, &mut parsed_files, package);
+
+    check_crate(
+        &mut context,
+        crate_id,
+        compile_options.deny_warnings,
+        compile_options.disable_macros,
+        compile_options.debug_comptime_in_file.as_deref(),
+    )
+    .expect("Any errors should have occurred when collecting test functions");
+
+    let test_functions = context
+        .get_all_test_functions_in_crate_matching(&crate_id, FunctionNameMatch::Exact(test_name));
+    let (_, test_function) = test_functions.first().expect("Test function should exist");
+
+    let compiled = compile_no_check_for_debug(&mut context, test_function, &compile_options)
+        .map_err(|_| LoadError::Generic("Failed to compile project".into()))?;
+    Ok(compiled)
 }
 
 fn loop_uninitialized_dap<R: Read, W: Write>(

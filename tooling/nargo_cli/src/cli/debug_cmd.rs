@@ -71,17 +71,12 @@ pub(crate) fn run(args: DebugCommand, config: NargoConfig) -> Result<(), CliErro
         );
         return Ok(());
     };
+    let compile_options =
+        compile_options_for_debugging(acir_mode, skip_instrumentation, args.compile_options);
+    let compiled_program =
+        compile_bin_package_for_debugging(&workspace, package, &compile_options)?;
 
-    let compiled_program = compile_bin_package_for_debugging(
-        &workspace,
-        package,
-        acir_mode,
-        skip_instrumentation,
-        args.compile_options.clone(),
-    )?;
-
-    let target_width =
-        get_target_width(package.expression_width, args.compile_options.expression_width);
+    let target_width = get_target_width(package.expression_width, compile_options.expression_width);
 
     let compiled_program = nargo::ops::transform_program(compiled_program, target_width);
 
@@ -89,24 +84,28 @@ pub(crate) fn run(args: DebugCommand, config: NargoConfig) -> Result<(), CliErro
         .map(|_| ())
 }
 
-pub(crate) fn compile_bin_package_for_debugging(
-    workspace: &Workspace,
-    package: &Package,
+pub(crate) fn compile_options_for_debugging(
     acir_mode: bool,
     skip_instrumentation: bool,
     compile_options: CompileOptions,
+) -> CompileOptions {
+    CompileOptions {
+        instrument_debug: !skip_instrumentation,
+        force_brillig: !acir_mode,
+        ..compile_options
+    }
+}
+
+pub(crate) fn compile_bin_package_for_debugging(
+    workspace: &Workspace,
+    package: &Package,
+    compile_options: &CompileOptions,
 ) -> Result<CompiledProgram, CompileError> {
     let mut workspace_file_manager = file_manager_with_stdlib(std::path::Path::new(""));
     insert_all_files_for_workspace_into_file_manager(workspace, &mut workspace_file_manager);
     let mut parsed_files = parse_all(&workspace_file_manager);
 
-    let compile_options = CompileOptions {
-        instrument_debug: !skip_instrumentation,
-        force_brillig: !acir_mode,
-        ..compile_options
-    };
-
-    let compilation_result = if !skip_instrumentation {
+    let compilation_result = if compile_options.instrument_debug {
         let debug_state =
             instrument_package_files(&mut parsed_files, &workspace_file_manager, package);
 
@@ -115,7 +114,7 @@ pub(crate) fn compile_bin_package_for_debugging(
             &parsed_files,
             workspace,
             package,
-            &compile_options,
+            compile_options,
             None,
             debug_state,
         )
