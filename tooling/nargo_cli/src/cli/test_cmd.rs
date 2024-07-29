@@ -23,7 +23,7 @@ use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 
 use crate::{cli::check_cmd::check_crate_and_report_errors, errors::CliError};
 
-use super::{execution_helpers::prepare_package_for_debug, NargoConfig};
+use super::{execution_helpers::{file_manager_and_files_from, prepare_package_for_debug}, NargoConfig};
 
 /// Run the tests for this program
 #[derive(Debug, Clone, Args)]
@@ -72,9 +72,7 @@ pub(crate) fn run(args: TestCommand, config: NargoConfig) -> Result<(), CliError
     )?;
     let debug_mode = args.debug;
 
-    let mut workspace_file_manager = file_manager_with_stdlib(&workspace.root_dir);
-    insert_all_files_for_workspace_into_file_manager(&workspace, &mut workspace_file_manager);
-    let parsed_files = parse_all(&workspace_file_manager);
+    let (workspace_file_manager, parsed_files) = file_manager_and_files_from(&workspace.root_dir, &workspace);
 
     let pattern = match &args.test_name {
         Some(name) => {

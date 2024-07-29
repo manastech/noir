@@ -21,7 +21,7 @@ use noirc_driver::{
 use noirc_frontend::graph::CrateName;
 
 use super::compile_cmd::get_target_width;
-use super::execution_helpers::instrument_package_files;
+use super::execution_helpers::{file_manager_and_files_from, instrument_package_files};
 use super::fs::{inputs::read_inputs_from_file, witness::save_witness_to_dir};
 use super::NargoConfig;
 use crate::errors::CliError;
@@ -101,9 +101,7 @@ pub(crate) fn compile_bin_package_for_debugging(
     package: &Package,
     compile_options: &CompileOptions,
 ) -> Result<CompiledProgram, CompileError> {
-    let mut workspace_file_manager = file_manager_with_stdlib(std::path::Path::new(""));
-    insert_all_files_for_workspace_into_file_manager(workspace, &mut workspace_file_manager);
-    let mut parsed_files = parse_all(&workspace_file_manager);
+    let (workspace_file_manager, mut parsed_files) = file_manager_and_files_from(std::path::Path::new(""), workspace);
 
     let compilation_result = if compile_options.instrument_debug {
         let debug_state =

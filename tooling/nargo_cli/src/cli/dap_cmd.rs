@@ -24,7 +24,7 @@ use dap::types::Capabilities;
 use serde_json::Value;
 
 use super::debug_cmd::{compile_bin_package_for_debugging, compile_options_for_debugging};
-use super::execution_helpers::prepare_package_for_debug;
+use super::execution_helpers::{file_manager_and_files_from, prepare_package_for_debug};
 use super::fs::inputs::read_inputs_from_file;
 use super::test_cmd::{compile_no_check_for_debug, get_tests_in_package};
 use crate::errors::CliError;
@@ -124,15 +124,13 @@ fn load_and_compile_project(
     let compile_options =
         compile_options_for_debugging(acir_mode, skip_instrumentation, CompileOptions::default());
 
-    let compiled_program = if test_name.is_some() {
-        let test_name = test_name.unwrap();
-        load_and_compile_test_function(test_name, workspace, &package, &compile_options)
-    } else {
-        let compiled = compile_bin_package_for_debugging(&workspace, &package, &compile_options)
-            .map_err(|_| LoadError::Generic("Failed to compile project".into()))?;
-        Ok(compiled)
-    }?;
-
+    let compiled_program = match test_name {
+        Some(test_name) => load_and_compile_test_function(test_name, workspace, &package, &compile_options)?,
+        None => {
+            compile_bin_package_for_debugging(&workspace, &package, &compile_options)
+                .map_err(|_| LoadError::Generic("Failed to compile project".into()))?
+        },
+    };
     let compiled_program = nargo::ops::transform_program(compiled_program, expression_width);
 
     let (inputs_map, _) =
@@ -154,9 +152,7 @@ fn load_and_compile_test_function(
     package: &Package,
     compile_options: &CompileOptions,
 ) -> Result<CompiledProgram, LoadError> {
-    let mut workspace_file_manager = file_manager_with_stdlib(&workspace.root_dir);
-    insert_all_files_for_workspace_into_file_manager(&workspace, &mut workspace_file_manager);
-    let mut parsed_files = parse_all(&workspace_file_manager);
+    let (workspace_file_manager, mut parsed_files) = file_manager_and_files_from(&workspace.root_dir, &workspace);
 
     let test_functions = get_tests_in_package(
         &workspace_file_manager,
