@@ -10,14 +10,12 @@ use nargo::errors::CompileError;
 use nargo::ops::{compile_program, compile_program_with_debug_instrumenter, report_errors};
 use nargo::package::Package;
 use nargo::workspace::Workspace;
-use nargo::{insert_all_files_for_workspace_into_file_manager, parse_all, NargoError};
+use nargo::NargoError;
 use nargo_toml::{get_package_manifest, resolve_workspace_from_toml, PackageSelection};
 
 use noirc_abi::input_parser::{Format, InputValue};
 use noirc_abi::Abi;
-use noirc_driver::{
-    file_manager_with_stdlib, CompileOptions, CompiledProgram, NOIR_ARTIFACT_VERSION_STRING,
-};
+use noirc_driver::{CompileOptions, CompiledProgram, NOIR_ARTIFACT_VERSION_STRING};
 use noirc_frontend::graph::CrateName;
 
 use super::compile_cmd::get_target_width;
@@ -101,7 +99,8 @@ pub(crate) fn compile_bin_package_for_debugging(
     package: &Package,
     compile_options: &CompileOptions,
 ) -> Result<CompiledProgram, CompileError> {
-    let (workspace_file_manager, mut parsed_files) = file_manager_and_files_from(std::path::Path::new(""), workspace);
+    let (workspace_file_manager, mut parsed_files) =
+        file_manager_and_files_from(std::path::Path::new(""), workspace);
 
     let compilation_result = if compile_options.instrument_debug {
         let debug_state =

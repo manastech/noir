@@ -5,15 +5,11 @@ use bn254_blackbox_solver::Bn254BlackBoxSolver;
 use clap::Args;
 use fm::FileManager;
 use nargo::{
-    insert_all_files_for_workspace_into_file_manager, ops::test_status_program_compile_fail,
-    ops::test_status_program_compile_pass, ops::TestStatus, package::Package, parse_all,
-    prepare_package,
+    ops::test_status_program_compile_fail, ops::test_status_program_compile_pass, ops::TestStatus,
+    package::Package, prepare_package,
 };
 use nargo_toml::{get_package_manifest, resolve_workspace_from_toml, PackageSelection};
-use noirc_driver::{
-    check_crate, compile_no_check, file_manager_with_stdlib, CompileOptions,
-    NOIR_ARTIFACT_VERSION_STRING,
-};
+use noirc_driver::{check_crate, compile_no_check, CompileOptions, NOIR_ARTIFACT_VERSION_STRING};
 use noirc_frontend::{
     graph::CrateName,
     hir::{def_map::TestFunction, Context, FunctionNameMatch, ParsedFiles},
@@ -23,7 +19,10 @@ use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 
 use crate::{cli::check_cmd::check_crate_and_report_errors, errors::CliError};
 
-use super::{execution_helpers::{file_manager_and_files_from, prepare_package_for_debug}, NargoConfig};
+use super::{
+    execution_helpers::{file_manager_and_files_from, prepare_package_for_debug},
+    NargoConfig,
+};
 
 /// Run the tests for this program
 #[derive(Debug, Clone, Args)]
@@ -72,7 +71,8 @@ pub(crate) fn run(args: TestCommand, config: NargoConfig) -> Result<(), CliError
     )?;
     let debug_mode = args.debug;
 
-    let (workspace_file_manager, parsed_files) = file_manager_and_files_from(&workspace.root_dir, &workspace);
+    let (workspace_file_manager, parsed_files) =
+        file_manager_and_files_from(&workspace.root_dir, &workspace);
 
     let pattern = match &args.test_name {
         Some(name) => {

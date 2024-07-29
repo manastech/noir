@@ -1,6 +1,6 @@
-use fm::{FileId, FileManager};
-use nargo::{package::Package, workspace::Workspace};
+use fm::FileManager;
 use nargo::{insert_all_files_for_workspace_into_file_manager, parse_all, prepare_package};
+use nargo::{package::Package, workspace::Workspace};
 use noirc_driver::{file_manager_with_stdlib, link_to_debug_crate};
 use noirc_frontend::{
     debug::DebugInstrumenter,
@@ -8,7 +8,6 @@ use noirc_frontend::{
     hir::{Context, ParsedFiles},
 };
 
-use std::collections::HashMap;
 use std::path::Path;
 
 pub(crate) fn prepare_package_for_debug<'a>(
@@ -57,7 +56,10 @@ pub(crate) fn instrument_package_files(
 
 // TODO: should we create a type that englobe fileManager + parsed_files?
 // all functions that need file_manager needs parsed_files as well
-pub(crate) fn file_manager_and_files_from(root: &Path, workspace: &Workspace) -> (FileManager, ParsedFiles) {
+pub(crate) fn file_manager_and_files_from(
+    root: &Path,
+    workspace: &Workspace,
+) -> (FileManager, ParsedFiles) {
     let mut workspace_file_manager = file_manager_with_stdlib(root);
     insert_all_files_for_workspace_into_file_manager(workspace, &mut workspace_file_manager);
     let parsed_files = parse_all(&workspace_file_manager);

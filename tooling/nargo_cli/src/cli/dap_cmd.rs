@@ -4,14 +4,11 @@ use acvm::FieldElement;
 use bn254_blackbox_solver::Bn254BlackBoxSolver;
 use clap::Args;
 use nargo::constants::PROVER_INPUT_FILE;
+use nargo::package::Package;
 use nargo::workspace::Workspace;
-use nargo::{insert_all_files_for_workspace_into_file_manager, package::Package, parse_all};
 use nargo_toml::{get_package_manifest, resolve_workspace_from_toml, PackageSelection};
 use noirc_abi::input_parser::Format;
-use noirc_driver::{
-    check_crate, file_manager_with_stdlib, CompileOptions, CompiledProgram,
-    NOIR_ARTIFACT_VERSION_STRING,
-};
+use noirc_driver::{check_crate, CompileOptions, CompiledProgram, NOIR_ARTIFACT_VERSION_STRING};
 use noirc_frontend::{graph::CrateName, hir::FunctionNameMatch};
 
 use std::io::{BufReader, BufWriter, Read, Write};
@@ -125,11 +122,11 @@ fn load_and_compile_project(
         compile_options_for_debugging(acir_mode, skip_instrumentation, CompileOptions::default());
 
     let compiled_program = match test_name {
-        Some(test_name) => load_and_compile_test_function(test_name, workspace, &package, &compile_options)?,
-        None => {
-            compile_bin_package_for_debugging(&workspace, &package, &compile_options)
-                .map_err(|_| LoadError::Generic("Failed to compile project".into()))?
-        },
+        Some(test_name) => {
+            load_and_compile_test_function(test_name, workspace, &package, &compile_options)?
+        }
+        None => compile_bin_package_for_debugging(&workspace, &package, &compile_options)
+            .map_err(|_| LoadError::Generic("Failed to compile project".into()))?,
     };
     let compiled_program = nargo::ops::transform_program(compiled_program, expression_width);
 
@@ -152,7 +149,8 @@ fn load_and_compile_test_function(
     package: &Package,
     compile_options: &CompileOptions,
 ) -> Result<CompiledProgram, LoadError> {
-    let (workspace_file_manager, mut parsed_files) = file_manager_and_files_from(&workspace.root_dir, &workspace);
+    let (workspace_file_manager, mut parsed_files) =
+        file_manager_and_files_from(&workspace.root_dir, &workspace);
 
     let test_functions = get_tests_in_package(
         &workspace_file_manager,
