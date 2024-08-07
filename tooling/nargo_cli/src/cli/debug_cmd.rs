@@ -184,7 +184,8 @@ fn run_async(
 }
 
 type DebugResult = Result<WitnessStack<FieldElement>, NargoError<FieldElement>>;
-type ExecutionResult = Result<(Option<InputValue>, WitnessStack<FieldElement>), NargoError<FieldElement>>;
+type ExecutionResult =
+    Result<(Option<InputValue>, WitnessStack<FieldElement>), NargoError<FieldElement>>;
 
 // FIXME: We have nested results to differentiate between the execution result (the inner one - Nargo)
 // and setting up the debugger errors (outer one - CliErrors)

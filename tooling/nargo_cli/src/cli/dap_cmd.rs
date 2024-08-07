@@ -176,12 +176,8 @@ fn load_and_compile_test_function(
     let (mut context, crate_id) =
         prepare_package_for_debug(&workspace_file_manager, &mut parsed_files, package);
 
-    check_crate(
-        &mut context,
-        crate_id,
-        compile_options,
-    )
-    .expect("Any errors should have occurred when collecting test functions");
+    check_crate(&mut context, crate_id, compile_options)
+        .expect("Any errors should have occurred when collecting test functions");
 
     let test_functions = context
         .get_all_test_functions_in_crate_matching(&crate_id, FunctionNameMatch::Exact(test_name));

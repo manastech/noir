@@ -670,15 +670,10 @@ pub fn run_session<R: Read, W: Write, B: BlackBoxFunctionSolver<FieldElement>>(
     initial_witness: WitnessMap<FieldElement>,
     test_function: Option<TestFunction>,
 ) -> Result<(), ServerError> {
-    let debug_artifact = DebugArtifact { debug_symbols: program.debug.clone(), file_map: program.file_map.clone() };
-    let mut session = DapSession::new(
-        server,
-        solver,
-        &program,
-        &debug_artifact,
-        initial_witness,
-        test_function,
-    );
+    let debug_artifact =
+        DebugArtifact { debug_symbols: program.debug.clone(), file_map: program.file_map.clone() };
+    let mut session =
+        DapSession::new(server, solver, &program, &debug_artifact, initial_witness, test_function);
 
     session.run_loop()
 }
