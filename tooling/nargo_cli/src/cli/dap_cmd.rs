@@ -179,9 +179,7 @@ fn load_and_compile_test_function(
     check_crate(
         &mut context,
         crate_id,
-        compile_options.deny_warnings,
-        compile_options.disable_macros,
-        compile_options.debug_comptime_in_file.as_deref(),
+        compile_options,
     )
     .expect("Any errors should have occurred when collecting test functions");
 
