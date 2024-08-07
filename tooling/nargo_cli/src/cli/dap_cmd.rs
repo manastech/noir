@@ -9,6 +9,7 @@ use nargo::workspace::Workspace;
 use nargo_toml::{get_package_manifest, resolve_workspace_from_toml, PackageSelection};
 use noirc_abi::input_parser::Format;
 use noirc_driver::{check_crate, CompileOptions, CompiledProgram, NOIR_ARTIFACT_VERSION_STRING};
+use noirc_frontend::hir::def_map::TestFunction;
 use noirc_frontend::{graph::CrateName, hir::FunctionNameMatch};
 
 use std::io::{BufReader, BufWriter, Read, Write};
@@ -109,7 +110,7 @@ fn load_and_compile_project(
     acir_mode: bool,
     skip_instrumentation: bool,
     test_name: Option<&str>,
-) -> Result<(CompiledProgram, WitnessMap<FieldElement>), LoadError> {
+) -> Result<(CompiledProgram, WitnessMap<FieldElement>, Option<TestFunction>), LoadError> {
     let workspace = find_workspace(project_folder, package)
         .ok_or(LoadError::Generic(workspace_not_found_error_msg(project_folder, package)))?;
     let package = workspace
@@ -121,12 +122,15 @@ fn load_and_compile_project(
     let compile_options =
         compile_options_for_debugging(acir_mode, skip_instrumentation, CompileOptions::default());
 
-    let compiled_program = match test_name {
+    let (compiled_program, test_function) = match test_name {
+        Some("") | None => (
+            compile_bin_package_for_debugging(&workspace, &package, &compile_options)
+                .map_err(|_| LoadError::Generic("Failed to compile project".into()))?,
+            None,
+        ),
         Some(test_name) => {
             load_and_compile_test_function(test_name, workspace, &package, &compile_options)?
         }
-        None => compile_bin_package_for_debugging(&workspace, &package, &compile_options)
-            .map_err(|_| LoadError::Generic("Failed to compile project".into()))?,
     };
     let compiled_program = nargo::ops::transform_program(compiled_program, expression_width);
 
@@ -140,7 +144,7 @@ fn load_and_compile_project(
         .encode(&inputs_map, None)
         .map_err(|_| LoadError::Generic("Failed to encode inputs".into()))?;
 
-    Ok((compiled_program, initial_witness))
+    Ok((compiled_program, initial_witness, test_function))
 }
 
 fn load_and_compile_test_function(
@@ -148,7 +152,7 @@ fn load_and_compile_test_function(
     workspace: Workspace,
     package: &Package,
     compile_options: &CompileOptions,
-) -> Result<CompiledProgram, LoadError> {
+) -> Result<(CompiledProgram, Option<TestFunction>), LoadError> {
     let (workspace_file_manager, mut parsed_files) =
         file_manager_and_files_from(&workspace.root_dir, &workspace);
 
@@ -183,11 +187,11 @@ fn load_and_compile_test_function(
 
     let test_functions = context
         .get_all_test_functions_in_crate_matching(&crate_id, FunctionNameMatch::Exact(test_name));
-    let (_, test_function) = test_functions.first().expect("Test function should exist");
+    let (_, test_function) = test_functions.into_iter().nth(0).expect("Test function should exist");
 
-    let compiled = compile_no_check_for_debug(&mut context, test_function, &compile_options)
+    let compiled = compile_no_check_for_debug(&mut context, &test_function, &compile_options)
         .map_err(|_| LoadError::Generic("Failed to compile project".into()))?;
-    Ok(compiled)
+    Ok((compiled, Some(test_function)))
 }
 
 fn loop_uninitialized_dap<R: Read, W: Write>(
@@ -250,7 +254,7 @@ fn loop_uninitialized_dap<R: Read, W: Write>(
                     skip_instrumentation,
                     test_name,
                 ) {
-                    Ok((compiled_program, initial_witness)) => {
+                    Ok((compiled_program, initial_witness, test_function)) => {
                         server.respond(req.ack()?)?;
 
                         noir_debugger::run_dap_loop(
@@ -258,6 +262,7 @@ fn loop_uninitialized_dap<R: Read, W: Write>(
                             &Bn254BlackBoxSolver,
                             compiled_program,
                             initial_witness,
+                            test_function,
                         )?;
                         break;
                     }

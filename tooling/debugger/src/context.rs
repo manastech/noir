@@ -183,9 +183,14 @@ impl std::str::FromStr for DebugLocation {
 
 #[derive(Debug)]
 pub(super) enum DebugCommandResult {
+    // TODO: validate comments
+    // The debugging session is over successfully
     Done,
+    // The session is active and we should continue with the execution
     Ok,
+    // Execution should be paused since we reached a Breakpoint
     BreakpointReached(DebugLocation),
+    // Session is over with an error
     Error(NargoError<FieldElement>),
 }
 

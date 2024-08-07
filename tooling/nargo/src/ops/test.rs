@@ -116,7 +116,7 @@ pub fn test_status_program_compile_pass(
     )
 }
 
-fn check_expected_failure_message(
+pub fn check_expected_failure_message(
     test_function: &TestFunction,
     failed_assertion: Option<String>,
     error_diagnostic: Option<FileDiagnostic>,
