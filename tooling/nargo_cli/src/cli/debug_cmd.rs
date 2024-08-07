@@ -121,7 +121,7 @@ pub(crate) fn compile_bin_package_for_debugging(
             &parsed_files,
             workspace,
             package,
-            &compile_options,
+            compile_options,
             None,
         )
     };
@@ -184,6 +184,7 @@ fn run_async(
 }
 
 type DebugResult = Result<WitnessStack<FieldElement>, NargoError<FieldElement>>;
+type ExecutionResult = Result<(Option<InputValue>, WitnessStack<FieldElement>), NargoError<FieldElement>>;
 
 // FIXME: We have nested results to differentiate between the execution result (the inner one - Nargo)
 // and setting up the debugger errors (outer one - CliErrors)
@@ -191,10 +192,7 @@ fn debug_program_and_decode(
     program: CompiledProgram,
     package: &Package,
     prover_name: &str,
-) -> Result<
-    Result<(Option<InputValue>, WitnessStack<FieldElement>), NargoError<FieldElement>>,
-    CliError,
-> {
+) -> Result<ExecutionResult, CliError> {
     let program_abi = program.abi.clone();
 
     let initial_witness = parse_initial_witness(package, prover_name, &program.abi)?;

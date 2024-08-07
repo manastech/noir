@@ -185,9 +185,9 @@ fn load_and_compile_test_function(
 
     let test_functions = context
         .get_all_test_functions_in_crate_matching(&crate_id, FunctionNameMatch::Exact(test_name));
-    let (_, test_function) = test_functions.into_iter().nth(0).expect("Test function should exist");
+    let (_, test_function) = test_functions.into_iter().next().expect("Test function should exist");
 
-    let compiled = compile_no_check_for_debug(&mut context, &test_function, &compile_options)
+    let compiled = compile_no_check_for_debug(&mut context, &test_function, compile_options)
         .map_err(|_| LoadError::Generic("Failed to compile project".into()))?;
     Ok((compiled, Some(test_function)))
 }

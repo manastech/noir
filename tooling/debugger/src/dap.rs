@@ -1,8 +1,6 @@
 use std::collections::BTreeMap;
 use std::io::{Read, Write};
 
-use acvm::acir::circuit::brillig::BrilligBytecode;
-use acvm::acir::circuit::Circuit;
 use acvm::acir::native_types::WitnessMap;
 use acvm::{BlackBoxFunctionSolver, FieldElement};
 use nargo::errors::try_to_diagnose_runtime_error;
@@ -67,20 +65,18 @@ impl<'a, R: Read, W: Write, B: BlackBoxFunctionSolver<FieldElement>> DapSession<
     pub fn new(
         server: Server<R, W>,
         solver: &'a B,
-        circuits: &'a [Circuit<FieldElement>],
+        program: &'a CompiledProgram,
         debug_artifact: &'a DebugArtifact,
         initial_witness: WitnessMap<FieldElement>,
-        unconstrained_functions: &'a [BrilligBytecode<FieldElement>],
         test_function: Option<TestFunction>,
-        abi: &'a Abi,
     ) -> Self {
         let context = DebugContext::new(
             solver,
-            circuits,
+            &program.program.functions,
             debug_artifact,
             initial_witness,
             Box::new(DefaultDebugForeignCallExecutor::from_artifact(true, debug_artifact)),
-            unconstrained_functions,
+            &program.program.unconstrained_functions,
         );
         Self {
             server,
@@ -91,7 +87,7 @@ impl<'a, R: Read, W: Write, B: BlackBoxFunctionSolver<FieldElement>> DapSession<
             instruction_breakpoints: vec![],
             source_breakpoints: BTreeMap::new(),
             test_function,
-            abi,
+            abi: &program.abi,
         }
     }
 
@@ -400,7 +396,7 @@ impl<'a, R: Read, W: Write, B: BlackBoxFunctionSolver<FieldElement>> DapSession<
                         // Since the test shouldn't have failed, so that user can
                         // - see the error on the exception panel
                         // - restart the debug session
-                        let message = format!("x Text failed: {}", err.to_string());
+                        let message = format!("x Text failed: {}", err);
                         self.send_debug_output_message(message)?;
                     } else {
                         // Finish the execution of the debugger since the test reached
@@ -408,7 +404,7 @@ impl<'a, R: Read, W: Write, B: BlackBoxFunctionSolver<FieldElement>> DapSession<
                         self.running = false;
                         let diagnostic = try_to_diagnose_runtime_error(
                             &err,
-                            &self.abi,
+                            self.abi,
                             &self.debug_artifact.debug_symbols,
                         );
                         let message = match check_expected_failure_message(
@@ -674,16 +670,14 @@ pub fn run_session<R: Read, W: Write, B: BlackBoxFunctionSolver<FieldElement>>(
     initial_witness: WitnessMap<FieldElement>,
     test_function: Option<TestFunction>,
 ) -> Result<(), ServerError> {
-    let debug_artifact = DebugArtifact { debug_symbols: program.debug, file_map: program.file_map };
+    let debug_artifact = DebugArtifact { debug_symbols: program.debug.clone(), file_map: program.file_map.clone() };
     let mut session = DapSession::new(
         server,
         solver,
-        &program.program.functions,
+        &program,
         &debug_artifact,
         initial_witness,
-        &program.program.unconstrained_functions,
         test_function,
-        &program.abi,
     );
 
     session.run_loop()

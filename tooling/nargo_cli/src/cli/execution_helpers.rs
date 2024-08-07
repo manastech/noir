@@ -15,7 +15,7 @@ pub(crate) fn prepare_package_for_debug<'a>(
     parsed_files: &'a mut ParsedFiles,
     package: &'a Package,
 ) -> (Context<'a, 'a>, CrateId) {
-    let debug_instrumenter = instrument_package_files(parsed_files, &file_manager, package);
+    let debug_instrumenter = instrument_package_files(parsed_files, file_manager, package);
 
     // -- This :down: is from nargo::ops(compile).compile_program_with_debug_instrumenter
     let (mut context, crate_id) = prepare_package(file_manager, parsed_files, package);

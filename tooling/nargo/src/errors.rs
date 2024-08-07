@@ -221,12 +221,12 @@ pub fn try_to_diagnose_runtime_error(
 
 pub fn map_execution_error<F: AcirField>(
     error: OpcodeResolutionError<F>,
-    call_stack: &Vec<ResolvedOpcodeLocation>,
+    call_stack: &[ResolvedOpcodeLocation],
 ) -> ExecutionError<F> {
     let call_stack = match &error {
         OpcodeResolutionError::UnsatisfiedConstrain { .. }
         | OpcodeResolutionError::IndexOutOfBounds { .. }
-        | OpcodeResolutionError::BrilligFunctionFailed { .. } => Some(call_stack.clone()),
+        | OpcodeResolutionError::BrilligFunctionFailed { .. } => Some(call_stack.to_vec()),
         _ => None,
     };
 
