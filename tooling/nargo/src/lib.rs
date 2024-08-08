@@ -44,6 +44,8 @@ pub fn prepare_dependencies(
 }
 
 // TODO: find a better name
+// Also, should we create a type that englobe fileManager + parsed_files?
+// functions that need file_manager needs parsed_files as well
 pub fn file_manager_and_files_from(
     root: &Path,
     workspace: &workspace::Workspace,
