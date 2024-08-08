@@ -14,9 +14,10 @@ pub mod package;
 pub mod workspace;
 
 use std::collections::BTreeMap;
+use std::path::Path;
 
 use fm::{FileManager, FILE_EXTENSION};
-use noirc_driver::{add_dep, prepare_crate, prepare_dependency};
+use noirc_driver::{add_dep, file_manager_with_stdlib, prepare_crate, prepare_dependency};
 use noirc_frontend::{
     graph::{CrateId, CrateName},
     hir::{def_map::parse_file, Context, ParsedFiles},
@@ -40,6 +41,17 @@ pub fn prepare_dependencies(
             }
         }
     }
+}
+
+// TODO: find a better name
+pub fn file_manager_and_files_from(
+    root: &Path,
+    workspace: &workspace::Workspace,
+) -> (FileManager, ParsedFiles) {
+    let mut workspace_file_manager = file_manager_with_stdlib(root);
+    insert_all_files_for_workspace_into_file_manager(workspace, &mut workspace_file_manager);
+    let parsed_files = parse_all(&workspace_file_manager);
+    (workspace_file_manager, parsed_files)
 }
 
 pub fn insert_all_files_for_workspace_into_file_manager(

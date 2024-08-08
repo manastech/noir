@@ -4,6 +4,7 @@ use acvm::FieldElement;
 use bn254_blackbox_solver::Bn254BlackBoxSolver;
 use clap::Args;
 use nargo::constants::PROVER_INPUT_FILE;
+use nargo::file_manager_and_files_from;
 use nargo::package::Package;
 use nargo::workspace::Workspace;
 use nargo_toml::{get_package_manifest, resolve_workspace_from_toml, PackageSelection};
@@ -26,7 +27,6 @@ use serde_json::Value;
 use super::debug_cmd::{
     compile_bin_package_for_debugging, compile_options_for_debugging, prepare_package_for_debug,
 };
-use super::execution_helpers::file_manager_and_files_from;
 use super::fs::inputs::read_inputs_from_file;
 use super::test_cmd::get_tests_in_package;
 use crate::errors::CliError;

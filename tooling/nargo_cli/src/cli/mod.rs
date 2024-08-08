@@ -13,7 +13,6 @@ mod compile_cmd;
 mod dap_cmd;
 mod debug_cmd;
 mod execute_cmd;
-mod execution_helpers;
 mod export_cmd;
 mod fmt_cmd;
 mod info_cmd;

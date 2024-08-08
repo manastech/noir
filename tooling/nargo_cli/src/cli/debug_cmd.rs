@@ -15,7 +15,7 @@ use nargo::ops::{
 };
 use nargo::package::Package;
 use nargo::workspace::Workspace;
-use nargo::{prepare_package, NargoError};
+use nargo::{file_manager_and_files_from, prepare_package, NargoError};
 use nargo_toml::{get_package_manifest, resolve_workspace_from_toml, PackageSelection};
 
 use noirc_abi::input_parser::{Format, InputValue};
@@ -24,13 +24,13 @@ use noirc_driver::{
     compile_no_check, link_to_debug_crate, CompileOptions, CompiledProgram,
     NOIR_ARTIFACT_VERSION_STRING,
 };
+use noirc_frontend::debug::DebugInstrumenter;
 use noirc_frontend::graph::{CrateId, CrateName};
 use noirc_frontend::hir::def_map::TestFunction;
 use noirc_frontend::hir::{Context, FunctionNameMatch, ParsedFiles};
 
 use super::check_cmd::check_crate_and_report_errors;
 use super::compile_cmd::get_target_width;
-use super::execution_helpers::{file_manager_and_files_from, instrument_package_files};
 use super::fs::{inputs::read_inputs_from_file, witness::save_witness_to_dir};
 use super::test_cmd::display_test_report;
 use super::NargoConfig;
@@ -354,6 +354,35 @@ fn debug_program_and_decode(
         },
         Err(error) => Ok(Err(error)),
     }
+}
+
+/// Add debugging instrumentation to all parsed files belonging to the package
+/// being compiled
+pub(crate) fn instrument_package_files(
+    parsed_files: &mut ParsedFiles,
+    file_manager: &FileManager,
+    package: &Package,
+) -> DebugInstrumenter {
+    // Start off at the entry path and read all files in the parent directory.
+    let entry_path_parent = package
+        .entry_path
+        .parent()
+        .unwrap_or_else(|| panic!("The entry path is expected to be a single file within a directory and so should have a parent {:?}", package.entry_path));
+
+    let mut debug_instrumenter = DebugInstrumenter::default();
+
+    for (file_id, parsed_file) in parsed_files.iter_mut() {
+        let file_path =
+            file_manager.path(*file_id).expect("Parsed file ID not found in file manager");
+        for ancestor in file_path.ancestors() {
+            if ancestor == entry_path_parent {
+                // file is in package
+                debug_instrumenter.instrument_module(&mut parsed_file.0);
+            }
+        }
+    }
+
+    debug_instrumenter
 }
 
 fn parse_initial_witness(
