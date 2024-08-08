@@ -8,7 +8,9 @@ use nargo::package::Package;
 use nargo::workspace::Workspace;
 use nargo_toml::{get_package_manifest, resolve_workspace_from_toml, PackageSelection};
 use noirc_abi::input_parser::Format;
-use noirc_driver::{check_crate, CompileOptions, CompiledProgram, NOIR_ARTIFACT_VERSION_STRING};
+use noirc_driver::{
+    check_crate, compile_no_check, CompileOptions, CompiledProgram, NOIR_ARTIFACT_VERSION_STRING,
+};
 use noirc_frontend::hir::def_map::TestFunction;
 use noirc_frontend::{graph::CrateName, hir::FunctionNameMatch};
 
@@ -21,10 +23,12 @@ use dap::server::Server;
 use dap::types::Capabilities;
 use serde_json::Value;
 
-use super::debug_cmd::{compile_bin_package_for_debugging, compile_options_for_debugging};
-use super::execution_helpers::{file_manager_and_files_from, prepare_package_for_debug};
+use super::debug_cmd::{
+    compile_bin_package_for_debugging, compile_options_for_debugging, prepare_package_for_debug,
+};
+use super::execution_helpers::file_manager_and_files_from;
 use super::fs::inputs::read_inputs_from_file;
-use super::test_cmd::{compile_no_check_for_debug, get_tests_in_package};
+use super::test_cmd::get_tests_in_package;
 use crate::errors::CliError;
 
 use super::NargoConfig;
@@ -183,8 +187,9 @@ fn load_and_compile_test_function(
         .get_all_test_functions_in_crate_matching(&crate_id, FunctionNameMatch::Exact(test_name));
     let (_, test_function) = test_functions.into_iter().next().expect("Test function should exist");
 
-    let compiled = compile_no_check_for_debug(&mut context, &test_function, compile_options)
-        .map_err(|_| LoadError::Generic("Failed to compile project".into()))?;
+    let compiled =
+        compile_no_check(&mut context, compile_options, test_function.get_id(), None, false)
+            .map_err(|_| LoadError::Generic("Failed to compile project".into()))?;
     Ok((compiled, Some(test_function)))
 }
 

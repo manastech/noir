@@ -1,28 +1,22 @@
-use std::{io::Write, path::PathBuf};
+use std::io::Write;
 
 use acvm::{BlackBoxFunctionSolver, FieldElement};
 use bn254_blackbox_solver::Bn254BlackBoxSolver;
 use clap::Args;
 use fm::FileManager;
-use nargo::{
-    ops::test_status_program_compile_fail, ops::test_status_program_compile_pass, ops::TestStatus,
-    package::Package, prepare_package,
-};
+use nargo::{ops::TestStatus, package::Package, prepare_package};
 use nargo_toml::{get_package_manifest, resolve_workspace_from_toml, PackageSelection};
 use noirc_driver::{check_crate, compile_no_check, CompileOptions, NOIR_ARTIFACT_VERSION_STRING};
 use noirc_frontend::{
     graph::CrateName,
-    hir::{def_map::TestFunction, Context, FunctionNameMatch, ParsedFiles},
+    hir::{FunctionNameMatch, ParsedFiles},
 };
 use rayon::prelude::{IntoParallelIterator, ParallelBridge, ParallelIterator};
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 
 use crate::{cli::check_cmd::check_crate_and_report_errors, errors::CliError};
 
-use super::{
-    execution_helpers::{file_manager_and_files_from, prepare_package_for_debug},
-    NargoConfig,
-};
+use super::{execution_helpers::file_manager_and_files_from, NargoConfig};
 
 /// Run the tests for this program
 #[derive(Debug, Clone, Args)]
@@ -47,10 +41,6 @@ pub(crate) struct TestCommand {
     #[clap(long, conflicts_with = "package")]
     workspace: bool,
 
-    /// Debug tests
-    #[clap(long)]
-    debug: bool,
-
     #[clap(flatten)]
     compile_options: CompileOptions,
 
@@ -69,7 +59,6 @@ pub(crate) fn run(args: TestCommand, config: NargoConfig) -> Result<(), CliError
         selection,
         Some(NOIR_ARTIFACT_VERSION_STRING.to_string()),
     )?;
-    let debug_mode = args.debug;
 
     let (workspace_file_manager, parsed_files) =
         file_manager_and_files_from(&workspace.root_dir, &workspace);
@@ -98,7 +87,6 @@ pub(crate) fn run(args: TestCommand, config: NargoConfig) -> Result<(), CliError
                 args.show_output,
                 args.oracle_resolver.as_deref(),
                 &args.compile_options,
-                debug_mode,
             )
         })
         .collect::<Result<_, _>>()?;
@@ -135,22 +123,11 @@ fn run_tests<S: BlackBoxFunctionSolver<FieldElement> + Default>(
     show_output: bool,
     foreign_call_resolver_url: Option<&str>,
     compile_options: &CompileOptions,
-    debug_mode: bool,
 ) -> Result<Vec<(String, TestStatus)>, CliError> {
     let test_functions =
         get_tests_in_package(file_manager, parsed_files, package, fn_name, compile_options)?;
 
     let count_all = test_functions.len();
-
-    let debug_mode = if debug_mode && count_all > 1 {
-        println!(
-            "[{}] Ignoring --debug flag since debugging multiple test is disabled",
-            package.name
-        );
-        false
-    } else {
-        debug_mode
-    };
 
     let plural = if count_all == 1 { "" } else { "s" };
     println!("[{}] Running {count_all} test function{plural}", package.name);
@@ -167,7 +144,6 @@ fn run_tests<S: BlackBoxFunctionSolver<FieldElement> + Default>(
                 show_output,
                 foreign_call_resolver_url,
                 compile_options,
-                debug_mode,
             );
 
             (test_name, status)
@@ -187,16 +163,11 @@ fn run_test<S: BlackBoxFunctionSolver<FieldElement> + Default>(
     show_output: bool,
     foreign_call_resolver_url: Option<&str>,
     compile_options: &CompileOptions,
-    debug_mode: bool,
 ) -> TestStatus {
     // This is really hacky but we can't share `Context` or `S` across threads.
     // We then need to construct a separate copy for each test.
 
-    let (mut context, crate_id) = if debug_mode {
-        prepare_package_for_debug(file_manager, parsed_files, package)
-    } else {
-        prepare_package(file_manager, parsed_files, package)
-    };
+    let (mut context, crate_id) = prepare_package(file_manager, parsed_files, package);
 
     check_crate(&mut context, crate_id, compile_options)
         .expect("Any errors should have occurred when collecting test functions");
@@ -215,28 +186,18 @@ fn run_test<S: BlackBoxFunctionSolver<FieldElement> + Default>(
         .is_empty();
 
     if test_function_has_no_arguments {
-        if debug_mode {
-            debug_test(package, &mut context, test_function, compile_options)
-        } else {
-            nargo::ops::run_test(
-                &blackbox_solver,
-                &mut context,
-                test_function,
-                show_output,
-                foreign_call_resolver_url,
-                compile_options,
-            )
-        }
+        nargo::ops::run_test(
+            &blackbox_solver,
+            &mut context,
+            test_function,
+            show_output,
+            foreign_call_resolver_url,
+            compile_options,
+        )
     } else {
         use noir_fuzzer::FuzzedExecutor;
         use proptest::test_runner::TestRunner;
 
-        if debug_mode {
-            println!(
-                "[{}] Ignoring --debug flag since debugging test with arguments is disabled",
-                package.name
-            );
-        }
         let compiled_program: Result<noirc_driver::CompiledProgram, noirc_driver::CompileError> =
             compile_no_check(&mut context, compile_options, test_function.get_id(), None, false);
         match compiled_program {
@@ -261,60 +222,6 @@ fn run_test<S: BlackBoxFunctionSolver<FieldElement> + Default>(
     }
 }
 
-// This is a copy and modified version of nargo::ops::run_test
-// This first iteration of the tester debugger will
-//  - run the debugger with the test code
-//  - once the debugger ends (the user quits) the test will be executed without the debugger
-fn debug_test(
-    package: &Package,
-    context: &mut Context,
-    test_function: &TestFunction,
-    config: &CompileOptions,
-) -> TestStatus {
-    let compiled_program = compile_no_check_for_debug(context, test_function, config);
-
-    match compiled_program {
-        Ok(compiled_program) => {
-            // Run the backend to ensure the PWG evaluates functions like std::hash::pedersen,
-            // otherwise constraints involving these expressions will not error.
-            let compiled_program = nargo::ops::transform_program(
-                compiled_program,
-                acvm::acir::circuit::ExpressionWidth::Bounded { width: 4 },
-            ); // TODO: remove expression_with hardcoded value
-
-            let abi = compiled_program.abi.clone();
-            let debug = compiled_program.debug.clone();
-
-            // Debug test
-            let debug_result = super::debug_cmd::debug_program_async(
-                package,
-                compiled_program,
-                "Prover.toml",
-                &None,
-                &PathBuf::new(),
-            ); //FIXME:  hardcoded prover_name, witness_name, target_dir
-
-            match debug_result {
-                Ok(result) => test_status_program_compile_pass(test_function, abi, debug, result),
-                Err(error) => TestStatus::Fail {
-                    message: format!("Debugger failed: {}", error),
-                    error_diagnostic: None,
-                },
-            }
-        }
-        Err(err) => test_status_program_compile_fail(err, test_function),
-    }
-}
-
-pub(crate) fn compile_no_check_for_debug(
-    context: &mut Context,
-    test_function: &TestFunction,
-    config: &CompileOptions,
-) -> Result<noirc_driver::CompiledProgram, noirc_driver::CompileError> {
-    let config = CompileOptions { instrument_debug: true, force_brillig: true, ..config.clone() };
-    compile_no_check(context, &config, test_function.get_id(), None, false)
-}
-
 pub(crate) fn get_tests_in_package(
     file_manager: &FileManager,
     parsed_files: &ParsedFiles,
@@ -332,7 +239,7 @@ pub(crate) fn get_tests_in_package(
         .collect())
 }
 
-fn display_test_report(
+pub(crate) fn display_test_report(
     file_manager: &FileManager,
     package: &Package,
     compile_options: &CompileOptions,

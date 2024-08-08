@@ -1,28 +1,10 @@
 use fm::FileManager;
-use nargo::{insert_all_files_for_workspace_into_file_manager, parse_all, prepare_package};
+use nargo::{insert_all_files_for_workspace_into_file_manager, parse_all};
 use nargo::{package::Package, workspace::Workspace};
-use noirc_driver::{file_manager_with_stdlib, link_to_debug_crate};
-use noirc_frontend::{
-    debug::DebugInstrumenter,
-    graph::CrateId,
-    hir::{Context, ParsedFiles},
-};
+use noirc_driver::file_manager_with_stdlib;
+use noirc_frontend::{debug::DebugInstrumenter, hir::ParsedFiles};
 
 use std::path::Path;
-
-pub(crate) fn prepare_package_for_debug<'a>(
-    file_manager: &'a FileManager,
-    parsed_files: &'a mut ParsedFiles,
-    package: &'a Package,
-) -> (Context<'a, 'a>, CrateId) {
-    let debug_instrumenter = instrument_package_files(parsed_files, file_manager, package);
-
-    // -- This :down: is from nargo::ops(compile).compile_program_with_debug_instrumenter
-    let (mut context, crate_id) = prepare_package(file_manager, parsed_files, package);
-    link_to_debug_crate(&mut context, crate_id);
-    context.debug_instrumenter = debug_instrumenter;
-    (context, crate_id)
-}
 
 /// Add debugging instrumentation to all parsed files belonging to the package
 /// being compiled

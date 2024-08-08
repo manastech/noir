@@ -5,22 +5,31 @@ use acvm::FieldElement;
 use bn254_blackbox_solver::Bn254BlackBoxSolver;
 use clap::Args;
 
+use fm::FileManager;
 use nargo::constants::PROVER_INPUT_FILE;
 use nargo::errors::CompileError;
-use nargo::ops::{compile_program, compile_program_with_debug_instrumenter, report_errors};
+use nargo::ops::{
+    compile_program, compile_program_with_debug_instrumenter, report_errors,
+    test_status_program_compile_fail, test_status_program_compile_pass, TestStatus,
+};
 use nargo::package::Package;
 use nargo::workspace::Workspace;
-use nargo::NargoError;
+use nargo::{prepare_package, NargoError};
 use nargo_toml::{get_package_manifest, resolve_workspace_from_toml, PackageSelection};
 
 use noirc_abi::input_parser::{Format, InputValue};
 use noirc_abi::Abi;
-use noirc_driver::{CompileOptions, CompiledProgram, NOIR_ARTIFACT_VERSION_STRING};
-use noirc_frontend::graph::CrateName;
+use noirc_driver::{
+    check_crate, compile_no_check, link_to_debug_crate, CompileOptions, CompiledProgram,
+    NOIR_ARTIFACT_VERSION_STRING,
+};
+use noirc_frontend::graph::{CrateId, CrateName};
+use noirc_frontend::hir::{Context, FunctionNameMatch, ParsedFiles};
 
 use super::compile_cmd::get_target_width;
 use super::execution_helpers::{file_manager_and_files_from, instrument_package_files};
 use super::fs::{inputs::read_inputs_from_file, witness::save_witness_to_dir};
+use super::test_cmd::{display_test_report, get_tests_in_package};
 use super::NargoConfig;
 use crate::errors::CliError;
 
@@ -45,6 +54,10 @@ pub(crate) struct DebugCommand {
     #[clap(long)]
     acir_mode: bool,
 
+    /// Only run tests that match exactly
+    #[clap(long)]
+    test_name: Option<String>,
+
     /// Disable vars debug instrumentation (enabled by default)
     #[clap(long)]
     skip_instrumentation: Option<bool>,
@@ -62,8 +75,8 @@ pub(crate) fn run(args: DebugCommand, config: NargoConfig) -> Result<(), CliErro
         Some(NOIR_ARTIFACT_VERSION_STRING.to_string()),
     )?;
     let target_dir = &workspace.target_directory_path();
-
-    let Some(package) = workspace.into_iter().find(|p| p.is_binary()) else {
+    let workspace_clone = workspace.clone();
+    let Some(package) = workspace_clone.into_iter().find(|p| p.is_binary()) else {
         println!(
             "No matching binary packages found in workspace. Only binary packages can be debugged."
         );
@@ -71,15 +84,29 @@ pub(crate) fn run(args: DebugCommand, config: NargoConfig) -> Result<(), CliErro
     };
     let compile_options =
         compile_options_for_debugging(acir_mode, skip_instrumentation, args.compile_options);
-    let compiled_program =
-        compile_bin_package_for_debugging(&workspace, package, &compile_options)?;
 
-    let target_width = get_target_width(package.expression_width, compile_options.expression_width);
+    match args.test_name {
+        Some(test_name) => run_async_for_test(
+            test_name,
+            package,
+            workspace,
+            &args.prover_name,
+            &args.witness_name,
+            target_dir,
+            &compile_options,
+        ),
+        None => {
+            let compiled_program =
+                compile_bin_package_for_debugging(&workspace, package, &compile_options)?;
 
-    let compiled_program = nargo::ops::transform_program(compiled_program, target_width);
+            let target_width =
+                get_target_width(package.expression_width, compile_options.expression_width);
 
-    run_async(package, compiled_program, &args.prover_name, &args.witness_name, target_dir)
-        .map(|_| ())
+            let compiled_program = nargo::ops::transform_program(compiled_program, target_width);
+            run_async(package, compiled_program, &args.prover_name, &args.witness_name, target_dir)
+                .map(|_| ())
+        }
+    }
 }
 
 pub(crate) fn compile_options_for_debugging(
@@ -134,14 +161,95 @@ pub(crate) fn compile_bin_package_for_debugging(
     )
 }
 
-pub(crate) fn debug_program_async(
+// TODO: rename
+fn run_async_for_test(
+    test_name: String,
     package: &Package,
-    program: CompiledProgram,
+    workspace: Workspace,
     prover_name: &str,
     witness_name: &Option<String>,
     target_dir: &PathBuf,
-) -> Result<DebugResult, CliError> {
-    run_async(package, program, prover_name, witness_name, target_dir)
+    compile_options: &CompileOptions,
+) -> Result<(), CliError> {
+    let test_pattern = FunctionNameMatch::Exact(&test_name);
+    let (workspace_file_manager, mut parsed_files) =
+        file_manager_and_files_from(&workspace.root_dir, &workspace);
+    let test_functions = get_tests_in_package(
+        &workspace_file_manager,
+        &parsed_files,
+        package,
+        test_pattern,
+        compile_options,
+    )?;
+    let more_than_one_match = test_functions.len() > 1;
+    if more_than_one_match {
+        println!(
+            "[{}] Ignoring --debug flag since debugging multiple test is disabled",
+            package.name
+        );
+        return Err(CliError::Generic(String::from(
+            "test_name argument matches more than one test function",
+        )));
+    };
+    let (mut context, crate_id) =
+        prepare_package_for_debug(&workspace_file_manager, &mut parsed_files, package);
+    check_crate(&mut context, crate_id, compile_options)
+        .expect("Any errors should have occurred when collecting test functions");
+
+    let test_functions = context.get_all_test_functions_in_crate_matching(&crate_id, test_pattern);
+    let (_, test_function) = test_functions.first().expect("Test function should exist");
+
+    let test_function_has_arguments = !context
+        .def_interner
+        .function_meta(&test_function.get_id())
+        .function_signature()
+        .0
+        .is_empty();
+
+    if test_function_has_arguments {
+        println!(
+            "[{}] Ignoring --debug flag since debugging test with arguments is disabled",
+            package.name
+        );
+        return Err(CliError::Generic(String::from("Cannot debug tests with arguments")));
+    }
+
+    let compiled_program =
+        compile_no_check(&mut context, compile_options, test_function.get_id(), None, false);
+
+    let test_status = match compiled_program {
+        Ok(compiled_program) => {
+            // Run the backend to ensure the PWG evaluates functions like std::hash::pedersen,
+            // otherwise constraints involving these expressions will not error.
+            let compiled_program = nargo::ops::transform_program(
+                compiled_program,
+                acvm::acir::circuit::ExpressionWidth::Bounded { width: 4 },
+            ); // TODO: remove expression_with hardcoded value
+
+            let abi = compiled_program.abi.clone();
+            let debug = compiled_program.debug.clone();
+
+            // Debug test
+            let debug_result =
+                run_async(package, compiled_program, prover_name, witness_name, target_dir);
+
+            match debug_result {
+                Ok(result) => test_status_program_compile_pass(test_function, abi, debug, result),
+                Err(error) => TestStatus::Fail {
+                    message: format!("Debugger failed: {}", error),
+                    error_diagnostic: None,
+                },
+            }
+        }
+        Err(err) => test_status_program_compile_fail(err, test_function),
+    };
+
+    display_test_report(
+        &workspace_file_manager,
+        package,
+        compile_options,
+        &[(test_name, test_status)],
+    )
 }
 
 fn run_async(
@@ -230,4 +338,18 @@ pub(crate) fn debug_program(
     initial_witness: WitnessMap<FieldElement>,
 ) -> Result<Option<WitnessStack<FieldElement>>, NargoError<FieldElement>> {
     noir_debugger::run_repl_session(&Bn254BlackBoxSolver, compiled_program, initial_witness)
+}
+
+pub(crate) fn prepare_package_for_debug<'a>(
+    file_manager: &'a FileManager,
+    parsed_files: &'a mut ParsedFiles,
+    package: &'a Package,
+) -> (Context<'a, 'a>, CrateId) {
+    let debug_instrumenter = instrument_package_files(parsed_files, file_manager, package);
+
+    // -- This :down: is from nargo::ops(compile).compile_program_with_debug_instrumenter
+    let (mut context, crate_id) = prepare_package(file_manager, parsed_files, package);
+    link_to_debug_crate(&mut context, crate_id);
+    context.debug_instrumenter = debug_instrumenter;
+    (context, crate_id)
 }
