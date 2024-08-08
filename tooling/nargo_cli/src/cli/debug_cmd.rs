@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use acvm::acir::circuit::ExpressionWidth;
 use acvm::acir::native_types::{WitnessMap, WitnessStack};
 use acvm::FieldElement;
 use bn254_blackbox_solver::Bn254BlackBoxSolver;
@@ -20,16 +21,18 @@ use nargo_toml::{get_package_manifest, resolve_workspace_from_toml, PackageSelec
 use noirc_abi::input_parser::{Format, InputValue};
 use noirc_abi::Abi;
 use noirc_driver::{
-    check_crate, compile_no_check, link_to_debug_crate, CompileOptions, CompiledProgram,
+    compile_no_check, link_to_debug_crate, CompileOptions, CompiledProgram,
     NOIR_ARTIFACT_VERSION_STRING,
 };
 use noirc_frontend::graph::{CrateId, CrateName};
+use noirc_frontend::hir::def_map::TestFunction;
 use noirc_frontend::hir::{Context, FunctionNameMatch, ParsedFiles};
 
+use super::check_cmd::check_crate_and_report_errors;
 use super::compile_cmd::get_target_width;
 use super::execution_helpers::{file_manager_and_files_from, instrument_package_files};
 use super::fs::{inputs::read_inputs_from_file, witness::save_witness_to_dir};
-use super::test_cmd::{display_test_report, get_tests_in_package};
+use super::test_cmd::display_test_report;
 use super::NargoConfig;
 use crate::errors::CliError;
 
@@ -63,6 +66,12 @@ pub(crate) struct DebugCommand {
     skip_instrumentation: Option<bool>,
 }
 
+struct ExecutionParams {
+    prover_name: String,
+    witness_name: Option<String>,
+    target_dir: PathBuf,
+}
+
 pub(crate) fn run(args: DebugCommand, config: NargoConfig) -> Result<(), CliError> {
     let acir_mode = args.acir_mode;
     let skip_instrumentation = args.skip_instrumentation.unwrap_or(acir_mode);
@@ -74,7 +83,11 @@ pub(crate) fn run(args: DebugCommand, config: NargoConfig) -> Result<(), CliErro
         selection,
         Some(NOIR_ARTIFACT_VERSION_STRING.to_string()),
     )?;
-    let target_dir = &workspace.target_directory_path();
+    let execution_params = ExecutionParams {
+        prover_name: args.prover_name,
+        witness_name: args.witness_name,
+        target_dir: workspace.target_directory_path(),
+    };
     let workspace_clone = workspace.clone();
     let Some(package) = workspace_clone.into_iter().find(|p| p.is_binary()) else {
         println!(
@@ -85,27 +98,19 @@ pub(crate) fn run(args: DebugCommand, config: NargoConfig) -> Result<(), CliErro
     let compile_options =
         compile_options_for_debugging(acir_mode, skip_instrumentation, args.compile_options);
 
+    let expression_width =
+        get_target_width(package.expression_width, compile_options.expression_width);
+
     match args.test_name {
-        Some(test_name) => run_async_for_test(
+        Some(test_name) => debug_test(
             test_name,
             package,
             workspace,
-            &args.prover_name,
-            &args.witness_name,
-            target_dir,
-            &compile_options,
+            compile_options,
+            execution_params,
+            expression_width,
         ),
-        None => {
-            let compiled_program =
-                compile_bin_package_for_debugging(&workspace, package, &compile_options)?;
-
-            let target_width =
-                get_target_width(package.expression_width, compile_options.expression_width);
-
-            let compiled_program = nargo::ops::transform_program(compiled_program, target_width);
-            run_async(package, compiled_program, &args.prover_name, &args.witness_name, target_dir)
-                .map(|_| ())
-        }
+        None => debug_main(package, workspace, compile_options, execution_params, expression_width),
     }
 }
 
@@ -161,93 +166,80 @@ pub(crate) fn compile_bin_package_for_debugging(
     )
 }
 
-// TODO: rename
-fn run_async_for_test(
+fn debug_main(
+    package: &Package,
+    workspace: Workspace,
+    compile_options: CompileOptions,
+    execution_params: ExecutionParams,
+    expression_width: ExpressionWidth,
+) -> Result<(), CliError> {
+    let compiled_program =
+        compile_bin_package_for_debugging(&workspace, package, &compile_options)?;
+
+    let compiled_program = nargo::ops::transform_program(compiled_program, expression_width);
+    run_async(
+        package,
+        compiled_program,
+        &execution_params.prover_name,
+        &execution_params.witness_name,
+        &execution_params.target_dir,
+    )
+    .map(|_| ())
+}
+
+fn debug_test(
     test_name: String,
     package: &Package,
     workspace: Workspace,
-    prover_name: &str,
-    witness_name: &Option<String>,
-    target_dir: &PathBuf,
-    compile_options: &CompileOptions,
+    compile_options: CompileOptions,
+    execution_params: ExecutionParams,
+    expression_width: ExpressionWidth,
 ) -> Result<(), CliError> {
-    let test_pattern = FunctionNameMatch::Exact(&test_name);
     let (workspace_file_manager, mut parsed_files) =
         file_manager_and_files_from(&workspace.root_dir, &workspace);
-    let test_functions = get_tests_in_package(
-        &workspace_file_manager,
-        &parsed_files,
-        package,
-        test_pattern,
-        compile_options,
-    )?;
-    let more_than_one_match = test_functions.len() > 1;
-    if more_than_one_match {
-        println!(
-            "[{}] Ignoring --debug flag since debugging multiple test is disabled",
-            package.name
-        );
-        return Err(CliError::Generic(String::from(
-            "test_name argument matches more than one test function",
-        )));
-    };
     let (mut context, crate_id) =
         prepare_package_for_debug(&workspace_file_manager, &mut parsed_files, package);
-    check_crate(&mut context, crate_id, compile_options)
-        .expect("Any errors should have occurred when collecting test functions");
 
-    let test_functions = context.get_all_test_functions_in_crate_matching(&crate_id, test_pattern);
-    let (_, test_function) = test_functions.first().expect("Test function should exist");
-
-    let test_function_has_arguments = !context
-        .def_interner
-        .function_meta(&test_function.get_id())
-        .function_signature()
-        .0
-        .is_empty();
-
-    if test_function_has_arguments {
-        println!(
-            "[{}] Ignoring --debug flag since debugging test with arguments is disabled",
-            package.name
-        );
-        return Err(CliError::Generic(String::from("Cannot debug tests with arguments")));
-    }
+    check_crate_and_report_errors(&mut context, crate_id, &compile_options)?;
+    let test_function = get_test_function(crate_id, &context, &test_name)?;
 
     let compiled_program =
-        compile_no_check(&mut context, compile_options, test_function.get_id(), None, false);
+        compile_no_check(&mut context, &compile_options, test_function.get_id(), None, false);
 
     let test_status = match compiled_program {
         Ok(compiled_program) => {
             // Run the backend to ensure the PWG evaluates functions like std::hash::pedersen,
             // otherwise constraints involving these expressions will not error.
-            let compiled_program = nargo::ops::transform_program(
-                compiled_program,
-                acvm::acir::circuit::ExpressionWidth::Bounded { width: 4 },
-            ); // TODO: remove expression_with hardcoded value
+            let compiled_program =
+                nargo::ops::transform_program(compiled_program, expression_width);
 
             let abi = compiled_program.abi.clone();
             let debug = compiled_program.debug.clone();
 
             // Debug test
-            let debug_result =
-                run_async(package, compiled_program, prover_name, witness_name, target_dir);
+            let debug_result = run_async(
+                package,
+                compiled_program,
+                &execution_params.prover_name,
+                &execution_params.witness_name,
+                &execution_params.target_dir,
+            );
 
             match debug_result {
-                Ok(result) => test_status_program_compile_pass(test_function, abi, debug, result),
+                Ok(result) => test_status_program_compile_pass(&test_function, abi, debug, result),
                 Err(error) => TestStatus::Fail {
                     message: format!("Debugger failed: {}", error),
                     error_diagnostic: None,
                 },
             }
         }
-        Err(err) => test_status_program_compile_fail(err, test_function),
+        Err(err) => test_status_program_compile_fail(err, &test_function),
     };
 
     display_test_report(
         &workspace_file_manager,
         package,
-        compile_options,
+        &compile_options,
         &[(test_name, test_status)],
     )
 }
@@ -289,6 +281,47 @@ fn run_async(
             Err(error) => Ok(Err(error)),
         }
     })
+}
+
+fn get_test_function(
+    crate_id: CrateId,
+    context: &Context,
+    test_name: &str,
+) -> Result<TestFunction, CliError> {
+    let test_pattern = FunctionNameMatch::Contains(test_name);
+
+    let test_functions = context.get_all_test_functions_in_crate_matching(&crate_id, test_pattern);
+
+    let test_function = match test_functions {
+        matchings if matchings.is_empty() => {
+            return Err(CliError::Generic(format!(
+                "`{}` does not match with any test function",
+                test_name
+            )));
+        }
+        matchings if matchings.len() == 1 => {
+            let (_, test_func) = matchings.into_iter().next().unwrap();
+            test_func
+        }
+        _ => {
+            return Err(CliError::Generic(format!(
+                "`{}` matches with more than one test function",
+                test_name
+            )));
+        }
+    };
+
+    let test_function_has_arguments = !context
+        .def_interner
+        .function_meta(&test_function.get_id())
+        .function_signature()
+        .0
+        .is_empty();
+
+    if test_function_has_arguments {
+        return Err(CliError::Generic(String::from("Cannot debug tests with arguments")));
+    }
+    Ok(test_function)
 }
 
 type DebugResult = Result<WitnessStack<FieldElement>, NargoError<FieldElement>>;
