@@ -7,7 +7,10 @@ pub use self::foreign_calls::{DefaultForeignCallExecutor, ForeignCall, ForeignCa
 pub use self::optimize::{optimize_contract, optimize_program};
 pub use self::transform::{transform_contract, transform_program};
 
-pub use self::test::{run_test, TestStatus};
+pub use self::test::{
+    check_expected_failure_message, run_test, test_status_program_compile_fail,
+    test_status_program_compile_pass, TestStatus,
+};
 
 mod compile;
 mod execute;

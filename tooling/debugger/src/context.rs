@@ -1,7 +1,7 @@
 use crate::foreign_calls::DebugForeignCallExecutor;
 use acvm::acir::brillig::BitSize;
 use acvm::acir::circuit::brillig::BrilligBytecode;
-use acvm::acir::circuit::{Circuit, Opcode, OpcodeLocation};
+use acvm::acir::circuit::{Circuit, Opcode, OpcodeLocation, ResolvedOpcodeLocation};
 use acvm::acir::native_types::{Witness, WitnessMap, WitnessStack};
 use acvm::brillig_vm::MemoryValue;
 use acvm::pwg::{
@@ -12,7 +12,7 @@ use acvm::{BlackBoxFunctionSolver, FieldElement};
 
 use codespan_reporting::files::{Files, SimpleFile};
 use fm::FileId;
-use nargo::errors::{ExecutionError, Location};
+use nargo::errors::{map_execution_error, ExecutionError, Location};
 use nargo::NargoError;
 use noirc_artifacts::debug::{DebugArtifact, StackFrame};
 use noirc_driver::DebugFile;
@@ -183,9 +183,14 @@ impl std::str::FromStr for DebugLocation {
 
 #[derive(Debug)]
 pub(super) enum DebugCommandResult {
+    // TODO: validate comments
+    // The debugging session is over successfully
     Done,
+    // The session is active and we should continue with the execution
     Ok,
+    // Execution should be paused since we reached a Breakpoint
     BreakpointReached(DebugLocation),
+    // Session is over with an error
     Error(NargoError<FieldElement>),
 }
 
@@ -314,6 +319,20 @@ impl<'a, B: BlackBoxFunctionSolver<FieldElement>> DebugContext<'a, B> {
             });
         }
         frames
+    }
+
+    fn get_resolved_call_stack(&self) -> Vec<ResolvedOpcodeLocation> {
+        self.get_call_stack()
+            .iter()
+            .map(|debug_loc| {
+                // usize should be at least u32 for supported platforms
+                let acir_function_index = usize::try_from(debug_loc.circuit_id).unwrap();
+                acvm::acir::circuit::ResolvedOpcodeLocation {
+                    acir_function_index,
+                    opcode_location: debug_loc.opcode_location,
+                }
+            })
+            .collect()
     }
 
     pub(super) fn is_source_location_in_debug_module(&self, location: &Location) -> bool {
@@ -472,9 +491,13 @@ impl<'a, B: BlackBoxFunctionSolver<FieldElement>> DebugContext<'a, B> {
                 self.brillig_solver = Some(solver);
                 self.handle_foreign_call(foreign_call)
             }
-            Err(err) => DebugCommandResult::Error(NargoError::ExecutionError(
-                ExecutionError::SolvingError(err, None),
-            )),
+            Err(err) => {
+                self.brillig_solver = Some(solver);
+                DebugCommandResult::Error(NargoError::ExecutionError(map_execution_error(
+                    err,
+                    &self.get_resolved_call_stack(),
+                )))
+            }
         }
     }
 
@@ -574,7 +597,7 @@ impl<'a, B: BlackBoxFunctionSolver<FieldElement>> DebugContext<'a, B> {
                 }
             }
             ACVMStatus::Failure(error) => DebugCommandResult::Error(NargoError::ExecutionError(
-                ExecutionError::SolvingError(error, None),
+                map_execution_error(error, &self.get_resolved_call_stack()),
             )),
             ACVMStatus::RequiresForeignCall(foreign_call) => self.handle_foreign_call(foreign_call),
             ACVMStatus::RequiresAcirCall(call_info) => self.handle_acir_call(call_info),

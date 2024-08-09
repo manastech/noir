@@ -1,10 +1,12 @@
 use std::collections::BTreeMap;
 use std::io::{Read, Write};
 
-use acvm::acir::circuit::brillig::BrilligBytecode;
-use acvm::acir::circuit::Circuit;
 use acvm::acir::native_types::WitnessMap;
 use acvm::{BlackBoxFunctionSolver, FieldElement};
+use nargo::errors::try_to_diagnose_runtime_error;
+use nargo::ops::check_expected_failure_message;
+use noirc_abi::Abi;
+use noirc_frontend::hir::def_map::TestFunction;
 
 use crate::context::DebugContext;
 use crate::context::{DebugCommandResult, DebugLocation};
@@ -21,8 +23,8 @@ use dap::responses::{
 };
 use dap::server::Server;
 use dap::types::{
-    Breakpoint, DisassembledInstruction, Scope, Source, StackFrame, SteppingGranularity,
-    StoppedEventReason, Thread, Variable,
+    Breakpoint, DisassembledInstruction, OutputEventCategory, Scope, Source, StackFrame,
+    SteppingGranularity, StoppedEventReason, Thread, Variable,
 };
 use noirc_artifacts::debug::DebugArtifact;
 
@@ -39,6 +41,8 @@ pub struct DapSession<'a, R: Read, W: Write, B: BlackBoxFunctionSolver<FieldElem
     next_breakpoint_id: BreakpointId,
     instruction_breakpoints: Vec<(DebugLocation, BreakpointId)>,
     source_breakpoints: BTreeMap<FileId, Vec<(DebugLocation, BreakpointId)>>,
+    test_function: Option<TestFunction>,
+    abi: &'a Abi,
 }
 
 enum ScopeReferences {
@@ -61,18 +65,18 @@ impl<'a, R: Read, W: Write, B: BlackBoxFunctionSolver<FieldElement>> DapSession<
     pub fn new(
         server: Server<R, W>,
         solver: &'a B,
-        circuits: &'a [Circuit<FieldElement>],
+        program: &'a CompiledProgram,
         debug_artifact: &'a DebugArtifact,
         initial_witness: WitnessMap<FieldElement>,
-        unconstrained_functions: &'a [BrilligBytecode<FieldElement>],
+        test_function: Option<TestFunction>,
     ) -> Self {
         let context = DebugContext::new(
             solver,
-            circuits,
+            &program.program.functions,
             debug_artifact,
             initial_witness,
             Box::new(DefaultDebugForeignCallExecutor::from_artifact(true, debug_artifact)),
-            unconstrained_functions,
+            &program.program.unconstrained_functions,
         );
         Self {
             server,
@@ -82,6 +86,8 @@ impl<'a, R: Read, W: Write, B: BlackBoxFunctionSolver<FieldElement>> DapSession<
             next_breakpoint_id: 1,
             instruction_breakpoints: vec![],
             source_breakpoints: BTreeMap::new(),
+            test_function,
+            abi: &program.abi,
         }
     }
 
@@ -341,6 +347,14 @@ impl<'a, R: Read, W: Write, B: BlackBoxFunctionSolver<FieldElement>> DapSession<
         match result {
             DebugCommandResult::Done => {
                 self.running = false;
+                if let Some(test_function) = self.test_function.as_ref() {
+                    let test_result = if test_function.should_fail() {
+                        "x Test failed: Test passed when it should have failed"
+                    } else {
+                        "✓ Test passed"
+                    };
+                    self.send_debug_output_message(String::from(test_result))?;
+                }
             }
             DebugCommandResult::Ok => {
                 self.server.send_event(Event::Stopped(StoppedEventBody {
@@ -368,16 +382,63 @@ impl<'a, R: Read, W: Write, B: BlackBoxFunctionSolver<FieldElement>> DapSession<
             DebugCommandResult::Error(err) => {
                 self.server.send_event(Event::Stopped(StoppedEventBody {
                     reason: StoppedEventReason::Exception,
-                    description: Some(format!("{err:?}")),
+                    description: Some(String::from("Paused on exception")), // This is shown in callstack section of the debug panel
                     thread_id: Some(0),
                     preserve_focus_hint: Some(false),
-                    text: None,
+                    text: Some(format!("{err}\n{err:?}")), // This is shown in the exception panel
                     all_threads_stopped: Some(false),
                     hit_breakpoint_ids: None,
                 }))?;
+                if let Some(test_function) = self.test_function.as_ref() {
+                    let test_should_have_passed = !test_function.should_fail();
+                    if test_should_have_passed {
+                        // Do not finish the execution of the debugger
+                        // Since the test shouldn't have failed, so that user can
+                        // - see the error on the exception panel
+                        // - restart the debug session
+                        let message = format!("x Text failed: {}", err);
+                        self.send_debug_output_message(message)?;
+                    } else {
+                        // Finish the execution of the debugger since the test reached
+                        // the expected state (failed)
+                        self.running = false;
+                        let diagnostic = try_to_diagnose_runtime_error(
+                            &err,
+                            self.abi,
+                            &self.debug_artifact.debug_symbols,
+                        );
+                        let message = match check_expected_failure_message(
+                            test_function,
+                            err.user_defined_failure_message(&self.abi.error_types),
+                            diagnostic,
+                        ) {
+                            nargo::ops::TestStatus::Pass => String::from("✓ Test passed"),
+                            nargo::ops::TestStatus::Fail { message, .. } => {
+                                format!("x Test failed: {}", message)
+                            }
+                            nargo::ops::TestStatus::CompileError(..) => {
+                                String::from("x Test failed: Couldn't run test due to an unexpected compile error")
+                            }
+                        };
+                        self.send_debug_output_message(message)?;
+                    };
+                }
             }
         }
         Ok(())
+    }
+
+    fn send_debug_output_message(&mut self, message: String) -> Result<(), ServerError> {
+        self.server.send_event(Event::Output(dap::events::OutputEventBody {
+            category: Some(OutputEventCategory::Console),
+            output: message,
+            group: None,
+            variables_reference: None,
+            source: None,
+            line: None,
+            column: None,
+            data: None,
+        }))
     }
 
     fn get_next_breakpoint_id(&mut self) -> BreakpointId {
@@ -607,16 +668,12 @@ pub fn run_session<R: Read, W: Write, B: BlackBoxFunctionSolver<FieldElement>>(
     solver: &B,
     program: CompiledProgram,
     initial_witness: WitnessMap<FieldElement>,
+    test_function: Option<TestFunction>,
 ) -> Result<(), ServerError> {
-    let debug_artifact = DebugArtifact { debug_symbols: program.debug, file_map: program.file_map };
-    let mut session = DapSession::new(
-        server,
-        solver,
-        &program.program.functions,
-        &debug_artifact,
-        initial_witness,
-        &program.program.unconstrained_functions,
-    );
+    let debug_artifact =
+        DebugArtifact { debug_symbols: program.debug.clone(), file_map: program.file_map.clone() };
+    let mut session =
+        DapSession::new(server, solver, &program, &debug_artifact, initial_witness, test_function);
 
     session.run_loop()
 }

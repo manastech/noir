@@ -406,6 +406,13 @@ impl<'a, B: BlackBoxFunctionSolver<FieldElement>> ReplDebugger<'a, B> {
         self.context.is_solved()
     }
 
+    fn last_error(self) -> Option<NargoError<FieldElement>> {
+        match self.last_result {
+            DebugCommandResult::Error(error) => Some(error),
+            _ => None,
+        }
+    }
+
     fn finalize(self) -> WitnessStack<FieldElement> {
         self.context.finalize()
     }
@@ -615,6 +622,10 @@ pub fn run<B: BlackBoxFunctionSolver<FieldElement>>(
         let solved_witness_stack = context.into_inner().finalize();
         Ok(Some(solved_witness_stack))
     } else {
-        Ok(None)
+        match context.into_inner().last_error() {
+            // Expose the last known error
+            Some(error) => Err(error),
+            None => Ok(None),
+        }
     }
 }

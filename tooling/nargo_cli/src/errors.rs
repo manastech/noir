@@ -63,4 +63,7 @@ pub(crate) enum CliError {
     /// Error from the compilation pipeline
     #[error(transparent)]
     CompileError(#[from] CompileError),
+
+    #[error("Execution halted")]
+    ExecutionHalted,
 }

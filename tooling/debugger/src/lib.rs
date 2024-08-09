@@ -14,6 +14,7 @@ use acvm::{BlackBoxFunctionSolver, FieldElement};
 
 use nargo::NargoError;
 use noirc_driver::CompiledProgram;
+use noirc_frontend::hir::def_map::TestFunction;
 
 pub fn run_repl_session<B: BlackBoxFunctionSolver<FieldElement>>(
     solver: &B,
@@ -28,6 +29,7 @@ pub fn run_dap_loop<R: Read, W: Write, B: BlackBoxFunctionSolver<FieldElement>>(
     solver: &B,
     program: CompiledProgram,
     initial_witness: WitnessMap<FieldElement>,
+    test_function: Option<TestFunction>,
 ) -> Result<(), ServerError> {
-    dap::run_session(server, solver, program, initial_witness)
+    dap::run_session(server, solver, program, initial_witness, test_function)
 }

@@ -5,14 +5,10 @@ use bn254_blackbox_solver::Bn254BlackBoxSolver;
 use clap::Args;
 use fm::FileManager;
 use nargo::{
-    insert_all_files_for_workspace_into_file_manager, ops::TestStatus, package::Package, parse_all,
-    prepare_package,
+    build_workspace_file_manager, ops::TestStatus, package::Package, parse_all, prepare_package,
 };
 use nargo_toml::{get_package_manifest, resolve_workspace_from_toml, PackageSelection};
-use noirc_driver::{
-    check_crate, compile_no_check, file_manager_with_stdlib, CompileOptions,
-    NOIR_ARTIFACT_VERSION_STRING,
-};
+use noirc_driver::{check_crate, compile_no_check, CompileOptions, NOIR_ARTIFACT_VERSION_STRING};
 use noirc_frontend::{
     graph::CrateName,
     hir::{FunctionNameMatch, ParsedFiles},
@@ -66,8 +62,7 @@ pub(crate) fn run(args: TestCommand, config: NargoConfig) -> Result<(), CliError
         Some(NOIR_ARTIFACT_VERSION_STRING.to_string()),
     )?;
 
-    let mut workspace_file_manager = file_manager_with_stdlib(&workspace.root_dir);
-    insert_all_files_for_workspace_into_file_manager(&workspace, &mut workspace_file_manager);
+    let workspace_file_manager = build_workspace_file_manager(&workspace.root_dir, &workspace);
     let parsed_files = parse_all(&workspace_file_manager);
 
     let pattern = match &args.test_name {
@@ -85,9 +80,10 @@ pub(crate) fn run(args: TestCommand, config: NargoConfig) -> Result<(), CliError
         .into_iter()
         .par_bridge()
         .map(|package| {
+            let mut parsed_files = parsed_files.clone();
             run_tests::<Bn254BlackBoxSolver>(
                 &workspace_file_manager,
-                &parsed_files,
+                &mut parsed_files,
                 package,
                 pattern,
                 args.show_output,
@@ -120,9 +116,10 @@ pub(crate) fn run(args: TestCommand, config: NargoConfig) -> Result<(), CliError
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run_tests<S: BlackBoxFunctionSolver<FieldElement> + Default>(
     file_manager: &FileManager,
-    parsed_files: &ParsedFiles,
+    parsed_files: &mut ParsedFiles,
     package: &Package,
     fn_name: FunctionNameMatch,
     show_output: bool,
@@ -140,9 +137,10 @@ fn run_tests<S: BlackBoxFunctionSolver<FieldElement> + Default>(
     let test_report: Vec<(String, TestStatus)> = test_functions
         .into_par_iter()
         .map(|test_name| {
+            let mut parsed_files = parsed_files.clone();
             let status = run_test::<S>(
                 file_manager,
-                parsed_files,
+                &mut parsed_files,
                 package,
                 &test_name,
                 show_output,
@@ -158,9 +156,10 @@ fn run_tests<S: BlackBoxFunctionSolver<FieldElement> + Default>(
     Ok(test_report)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run_test<S: BlackBoxFunctionSolver<FieldElement> + Default>(
     file_manager: &FileManager,
-    parsed_files: &ParsedFiles,
+    parsed_files: &mut ParsedFiles,
     package: &Package,
     fn_name: &str,
     show_output: bool,
@@ -171,6 +170,7 @@ fn run_test<S: BlackBoxFunctionSolver<FieldElement> + Default>(
     // We then need to construct a separate copy for each test.
 
     let (mut context, crate_id) = prepare_package(file_manager, parsed_files, package);
+
     check_crate(&mut context, crate_id, compile_options)
         .expect("Any errors should have occurred when collecting test functions");
 
@@ -200,12 +200,13 @@ fn run_test<S: BlackBoxFunctionSolver<FieldElement> + Default>(
         use noir_fuzzer::FuzzedExecutor;
         use proptest::test_runner::TestRunner;
 
-        let compiled_program =
+        let compiled_program: Result<noirc_driver::CompiledProgram, noirc_driver::CompileError> =
             compile_no_check(&mut context, compile_options, test_function.get_id(), None, false);
         match compiled_program {
             Ok(compiled_program) => {
                 let runner = TestRunner::default();
 
+                // TODO: Run debugger
                 let fuzzer = FuzzedExecutor::new(compiled_program.into(), runner);
 
                 let result = fuzzer.fuzz();
@@ -223,7 +224,7 @@ fn run_test<S: BlackBoxFunctionSolver<FieldElement> + Default>(
     }
 }
 
-fn get_tests_in_package(
+pub(crate) fn get_tests_in_package(
     file_manager: &FileManager,
     parsed_files: &ParsedFiles,
     package: &Package,
@@ -240,7 +241,7 @@ fn get_tests_in_package(
         .collect())
 }
 
-fn display_test_report(
+pub(crate) fn display_test_report(
     file_manager: &FileManager,
     package: &Package,
     compile_options: &CompileOptions,
