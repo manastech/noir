@@ -206,7 +206,6 @@ fn run_test<S: BlackBoxFunctionSolver<FieldElement> + Default>(
             Ok(compiled_program) => {
                 let runner = TestRunner::default();
 
-                // TODO: Run debugger
                 let fuzzer = FuzzedExecutor::new(compiled_program.into(), runner);
 
                 let result = fuzzer.fuzz();
