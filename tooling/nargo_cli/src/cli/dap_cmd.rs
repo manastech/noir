@@ -4,9 +4,9 @@ use acvm::FieldElement;
 use bn254_blackbox_solver::Bn254BlackBoxSolver;
 use clap::Args;
 use nargo::constants::PROVER_INPUT_FILE;
-use nargo::file_manager_and_files_from;
 use nargo::package::Package;
 use nargo::workspace::Workspace;
+use nargo::{build_workspace_file_manager, parse_all};
 use nargo_toml::{get_package_manifest, resolve_workspace_from_toml, PackageSelection};
 use noirc_abi::input_parser::Format;
 use noirc_driver::{
@@ -157,9 +157,8 @@ fn load_and_compile_test_function(
     package: &Package,
     compile_options: &CompileOptions,
 ) -> Result<(CompiledProgram, Option<TestFunction>), LoadError> {
-    let (workspace_file_manager, mut parsed_files) =
-        file_manager_and_files_from(&workspace.root_dir, &workspace);
-
+    let workspace_file_manager = build_workspace_file_manager(&workspace.root_dir, &workspace);
+    let mut parsed_files = parse_all(&workspace_file_manager);
     let test_functions = get_tests_in_package(
         &workspace_file_manager,
         &parsed_files,

@@ -4,7 +4,9 @@ use acvm::{BlackBoxFunctionSolver, FieldElement};
 use bn254_blackbox_solver::Bn254BlackBoxSolver;
 use clap::Args;
 use fm::FileManager;
-use nargo::{file_manager_and_files_from, ops::TestStatus, package::Package, prepare_package};
+use nargo::{
+    build_workspace_file_manager, ops::TestStatus, package::Package, parse_all, prepare_package,
+};
 use nargo_toml::{get_package_manifest, resolve_workspace_from_toml, PackageSelection};
 use noirc_driver::{check_crate, compile_no_check, CompileOptions, NOIR_ARTIFACT_VERSION_STRING};
 use noirc_frontend::{
@@ -60,8 +62,8 @@ pub(crate) fn run(args: TestCommand, config: NargoConfig) -> Result<(), CliError
         Some(NOIR_ARTIFACT_VERSION_STRING.to_string()),
     )?;
 
-    let (workspace_file_manager, parsed_files) =
-        file_manager_and_files_from(&workspace.root_dir, &workspace);
+    let workspace_file_manager = build_workspace_file_manager(&workspace.root_dir, &workspace);
+    let parsed_files = parse_all(&workspace_file_manager);
 
     let pattern = match &args.test_name {
         Some(name) => {
