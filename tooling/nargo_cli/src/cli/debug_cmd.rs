@@ -57,7 +57,7 @@ pub(crate) struct DebugCommand {
     #[clap(long)]
     acir_mode: bool,
 
-    /// Only run tests that match exactly
+    /// The name of the test function to debug - which name contains this string
     #[clap(long)]
     test_name: Option<String>,
 

@@ -23,9 +23,15 @@ This guide will show you how to use VS Code with the vscode-noir extension to de
 
 ## Running the debugger
 
-The easiest way to start debugging is to open the file you want to debug, and press `F5`. This will cause the debugger to launch, using your `Prover.toml` file as input.
+The easiest way to start debugging is to open the file you want to debug, and click on `Debug` codelens over main functions or `Debug test` over `#[test]` functions
 
-You should see something like this:
+If you don't see the codelens options `Compile|Info|..|Debug` over the `main` function or `Run test| Debug test` over a test function then you probably have the codelens feature disabled. For enabling it head to the extension configuration and turn on the `Enable Code Lens` setting.
+
+![Debugger codelens](@site/static/img/debugger/debugger-codelens.png)
+
+Another way of starting the debugger is to press `F5` on the file you want to debug. This will cause the debugger to launch, using your `Prover.toml` file as input.
+
+Once the debugger has started you should see something like this:
 
 ![Debugger launched](@site/static/img/debugger/1-started.png)
 

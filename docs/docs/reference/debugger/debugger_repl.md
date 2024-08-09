@@ -20,16 +20,22 @@ Runs the Noir REPL debugger. If a `WITNESS_NAME` is provided the debugger writes
 
 ### Options
 
-| Option                | Description                                                  |
-| --------------------- | ------------------------------------------------------------ |
+| Option                            | Description                                                                         |
+| --------------------------------- | ----------------------------------------------------------------------------------- |
 | `-p, --prover-name <PROVER_NAME>` | The name of the toml file which contains the inputs for the prover [default: Prover]|
-| `--package <PACKAGE>` | The name of the package to debug                             |
-| `--print-acir`        | Display the ACIR for compiled circuit                        |
-| `--deny-warnings`     | Treat all warnings as errors                                 |
-| `--silence-warnings`  | Suppress warnings                                            |
-| `-h, --help`          | Print help                                                   |
+| `--package <PACKAGE>`             | The name of the package to debug                                                    |
+| `--print-acir`                    | Display the ACIR for compiled circuit                                               |
+| `--deny-warnings`                 | Treat all warnings as errors                                                        |
+| `--silence-warnings`              | Suppress warnings                                                                   |
+| `--test-name` <TEST_NAME>         | The name of the test function to debug - which name contains this string            |
+| `-h, --help`                      | Print help                                                                          |
 
 None of these options are required.
+
+:::note
+If the `--test-name` option is provided the debugger will debug the matching function instead of the package `main` function.
+This argument must only match one function. If the given name matches with more than one test function the debugger will not start.
+:::
 
 :::note
 Since the debugger starts by compiling the target package, all Noir compiler options are also available. Check out the [compiler reference](../nargo_commands.md#nargo-compile) to learn more about the compiler options.
