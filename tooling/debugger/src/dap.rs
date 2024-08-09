@@ -417,8 +417,8 @@ impl<'a, R: Read, W: Write, B: BlackBoxFunctionSolver<FieldElement>> DapSession<
                                 format!("x Test failed: {}", message)
                             }
                             nargo::ops::TestStatus::CompileError(..) => {
-                                String::from("x Test failed: Something went wrong")
-                            } // TODO: this shouldn't happen. Should we panic?
+                                String::from("x Test failed: Couldn't run test due to an unexpected compile error")
+                            }
                         };
                         self.send_debug_output_message(message)?;
                     };
