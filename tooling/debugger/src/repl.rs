@@ -41,9 +41,11 @@ impl<'a, B: BlackBoxFunctionSolver<FieldElement>> ReplDebugger<'a, B> {
         debug_artifact: &'a DebugArtifact,
         initial_witness: WitnessMap<FieldElement>,
         unconstrained_functions: &'a [BrilligBytecode<FieldElement>],
+        foreign_call_resolver_url: Option<String>,
     ) -> Self {
         let foreign_call_executor = Box::new(DefaultDebugForeignCallExecutor::from_artifact(
             PrintOutput::Stdout,
+            foreign_call_resolver_url,
             debug_artifact,
         ));
         let context = DebugContext::new(
@@ -317,6 +319,7 @@ impl<'a, B: BlackBoxFunctionSolver<FieldElement>> ReplDebugger<'a, B> {
         let breakpoints: Vec<DebugLocation> = self.context.iterate_breakpoints().copied().collect();
         let foreign_call_executor = Box::new(DefaultDebugForeignCallExecutor::from_artifact(
             PrintOutput::Stdout,
+            self.context.get_foreign_call_resolver_url(),
             self.debug_artifact,
         ));
         self.context = DebugContext::new(
@@ -434,6 +437,7 @@ pub fn run<B: BlackBoxFunctionSolver<FieldElement>>(
     blackbox_solver: &B,
     program: CompiledProgram,
     initial_witness: WitnessMap<FieldElement>,
+    foreign_call_resolver_url: Option<String>,
 ) -> Result<Option<WitnessStack<FieldElement>>, NargoError<FieldElement>> {
     let circuits = &program.program.functions;
     let debug_artifact =
@@ -445,6 +449,7 @@ pub fn run<B: BlackBoxFunctionSolver<FieldElement>>(
         debug_artifact,
         initial_witness,
         unconstrained_functions,
+        foreign_call_resolver_url,
     ));
     let ref_context = &context;
 

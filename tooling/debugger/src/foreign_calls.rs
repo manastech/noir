@@ -43,33 +43,54 @@ impl DebugForeignCall {
 pub trait DebugForeignCallExecutor: ForeignCallExecutor<FieldElement> {
     fn get_variables(&self) -> Vec<StackFrame<FieldElement>>;
     fn current_stack_frame(&self) -> Option<StackFrame<FieldElement>>;
+    fn get_foreign_call_resolver_url(&self) -> Option<String>;
 }
 
 #[derive(Default)]
 pub struct DefaultDebugForeignCallExecutor {
     pub debug_vars: DebugVars<FieldElement>,
+    pub foreign_call_resolver_url: Option<String>,
 }
 
 impl DefaultDebugForeignCallExecutor {
     fn make(
         output: PrintOutput<'_>,
+        resolver_url: Option<String>,
         ex: DefaultDebugForeignCallExecutor,
     ) -> impl DebugForeignCallExecutor + '_ {
-        DefaultForeignCallBuilder::default().with_output(output).build().add_layer(ex)
+        DefaultForeignCallBuilder::default()
+            .with_output(output)
+            .with_resolver_url(resolver_url)
+            .build()
+            .add_layer(ex)
     }
 
     #[allow(clippy::new_ret_no_self, dead_code)]
-    pub fn new(output: PrintOutput<'_>) -> impl DebugForeignCallExecutor + '_ {
-        Self::make(output, Self::default())
+    pub fn new(
+        output: PrintOutput<'_>,
+        resolver_url: Option<String>,
+    ) -> impl DebugForeignCallExecutor + '_ {
+        Self::make(
+            output,
+            resolver_url.clone(),
+            DefaultDebugForeignCallExecutor {
+                foreign_call_resolver_url: resolver_url,
+                ..Self::default()
+            },
+        )
     }
 
     pub fn from_artifact<'a>(
         output: PrintOutput<'a>,
+        resolver_url: Option<String>,
         artifact: &DebugArtifact,
     ) -> impl DebugForeignCallExecutor + 'a {
-        let mut ex = Self::default();
+        let mut ex = DefaultDebugForeignCallExecutor {
+            foreign_call_resolver_url: resolver_url.clone(),
+            ..Self::default()
+        };
         ex.load_artifact(artifact);
-        Self::make(output, ex)
+        Self::make(output, resolver_url, ex)
     }
 
     pub fn load_artifact(&mut self, artifact: &DebugArtifact) {
@@ -89,6 +110,10 @@ impl DebugForeignCallExecutor for DefaultDebugForeignCallExecutor {
 
     fn current_stack_frame(&self) -> Option<StackFrame<FieldElement>> {
         self.debug_vars.current_stack_frame()
+    }
+
+    fn get_foreign_call_resolver_url(&self) -> Option<String> {
+        self.foreign_call_resolver_url.clone()
     }
 }
 
@@ -191,5 +216,8 @@ where
 
     fn current_stack_frame(&self) -> Option<StackFrame<FieldElement>> {
         self.handler().current_stack_frame()
+    }
+    fn get_foreign_call_resolver_url(&self) -> Option<String> {
+        self.handler().get_foreign_call_resolver_url()
     }
 }

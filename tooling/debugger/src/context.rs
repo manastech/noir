@@ -301,6 +301,10 @@ impl<'a, B: BlackBoxFunctionSolver<FieldElement>> DebugContext<'a, B> {
         self.acvm.witness_map()
     }
 
+    pub fn get_foreign_call_resolver_url(&self) -> Option<String> {
+        self.foreign_call_executor.as_ref().get_foreign_call_resolver_url()
+    }
+
     pub(super) fn overwrite_witness(
         &mut self,
         witness: Witness,
@@ -1029,6 +1033,7 @@ mod tests {
 
         let foreign_call_executor = Box::new(DefaultDebugForeignCallExecutor::from_artifact(
             PrintOutput::Stdout,
+            None,
             debug_artifact,
         ));
         let mut context = DebugContext::new(
@@ -1197,6 +1202,7 @@ mod tests {
 
         let foreign_call_executor = Box::new(DefaultDebugForeignCallExecutor::from_artifact(
             PrintOutput::Stdout,
+            None,
             debug_artifact,
         ));
         let brillig_funcs = &[brillig_bytecode];
@@ -1293,7 +1299,7 @@ mod tests {
             &circuits,
             &debug_artifact,
             WitnessMap::new(),
-            Box::new(DefaultDebugForeignCallExecutor::new(PrintOutput::Stdout)),
+            Box::new(DefaultDebugForeignCallExecutor::new(PrintOutput::Stdout, None)),
             brillig_funcs,
         );
 
