@@ -17,13 +17,12 @@ use nargo::workspace::Workspace;
 use nargo::{
     insert_all_files_for_workspace_into_file_manager, parse_all, prepare_package, NargoError,
 };
-use nargo_toml::{get_package_manifest, resolve_workspace_from_toml, PackageSelection};
+use nargo_toml::PackageSelection;
 use noirc_abi::input_parser::{Format, InputValue};
 use noirc_abi::Abi;
-use noirc_abi::InputMap;
 use noirc_driver::{
     compile_no_check, file_manager_with_stdlib, link_to_debug_crate, CompileOptions,
-    CompiledProgram, NOIR_ARTIFACT_VERSION_STRING,
+    CompiledProgram,
 };
 use noirc_frontend::debug::DebugInstrumenter;
 use noirc_frontend::graph::CrateId;
@@ -68,6 +67,10 @@ pub(crate) struct DebugCommand {
     /// Name (or substring) of the test function to debug
     #[clap(long)]
     test_name: Option<String>,
+
+    /// JSON RPC url to solve oracle calls
+    #[clap(long)]
+    oracle_resolver: Option<String>,
 }
 
 struct ExecutionParams {
@@ -79,7 +82,7 @@ struct ExecutionParams {
     // TODO: we should probably add the foreign call config in the same place
     pedantic_solving: bool,
     raw_source_printing: bool,
-
+    oracle_resolver_url: Option<String>,
 }
 
 impl WorkspaceCommand for DebugCommand {
@@ -100,7 +103,6 @@ impl WorkspaceCommand for DebugCommand {
 pub(crate) fn run(args: DebugCommand, workspace: Workspace) -> Result<(), CliError> {
     let acir_mode = args.acir_mode;
     let skip_instrumentation = args.skip_instrumentation.unwrap_or(acir_mode);
-    let target_dir = &workspace.target_directory_path();
 
     let execution_params = ExecutionParams {
         prover_name: args.prover_name,
@@ -108,12 +110,14 @@ pub(crate) fn run(args: DebugCommand, workspace: Workspace) -> Result<(), CliErr
         target_dir: workspace.target_directory_path(),
         pedantic_solving: args.compile_options.pedantic_solving,
         raw_source_printing: args.raw_source_printing.unwrap_or(false),
+        oracle_resolver_url: args.oracle_resolver,
     };
     let workspace_clone = workspace.clone();
 
-    let Some(package) = workspace_clone.into_iter().find(|p| p.is_binary()) else {
+    let Some(package) = workspace_clone.into_iter().find(|p| p.is_binary() || p.is_contract())
+    else {
         println!(
-            "No matching binary packages found in workspace. Only binary packages can be debugged."
+            "No matching binary or contract packages found in workspace. Only these packages can be debugged."
         );
         return Ok(());
     };
@@ -373,13 +377,7 @@ fn run_async(
 
     runtime.block_on(async {
         println!("[{}] Starting debugger", package.name);
-        let debug_result = debug_program_and_decode(
-            program,
-            package,
-            &execution_params.prover_name,
-            execution_params.pedantic_solving,
-            execution_params.raw_source_printing,
-        )?;
+        let debug_result = debug_program_and_decode(program, package, &execution_params)?;
 
         match debug_result {
             Ok((return_value, witness_stack)) => {
@@ -414,14 +412,18 @@ fn run_async(
 fn debug_program_and_decode(
     program: CompiledProgram,
     package: &Package,
-    prover_name: &str,
-    pedantic_solving: bool,
-    raw_source_printing: bool,
-
+    execution_params: &ExecutionParams,
 ) -> Result<ExecutionResult, CliError> {
     let program_abi = program.abi.clone();
-    let initial_witness = parse_initial_witness(package, prover_name, &program.abi)?;
-    let debug_result = debug_program(program, initial_witness, pedantic_solving, raw_source_printing);
+    let initial_witness =
+        parse_initial_witness(package, &execution_params.prover_name, &program.abi)?;
+    let debug_result = debug_program(
+        program,
+        initial_witness,
+        execution_params.pedantic_solving,
+        execution_params.raw_source_printing,
+        execution_params.oracle_resolver_url.clone(),
+    );
     match debug_result {
         Ok(witness_stack) => match witness_stack {
             Some(witness_stack) => {
@@ -454,11 +456,13 @@ pub(crate) fn debug_program(
     initial_witness: WitnessMap<FieldElement>,
     pedantic_solving: bool,
     raw_source_printing: bool,
+    foreign_call_resolver_url: Option<String>,
 ) -> Result<Option<WitnessStack<FieldElement>>, NargoError<FieldElement>> {
     noir_debugger::run_repl_session(
         &Bn254BlackBoxSolver(pedantic_solving),
         compiled_program,
         initial_witness,
         raw_source_printing,
+        foreign_call_resolver_url,
     )
 }

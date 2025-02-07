@@ -20,8 +20,9 @@ pub fn run_repl_session<B: BlackBoxFunctionSolver<FieldElement>>(
     program: CompiledProgram,
     initial_witness: WitnessMap<FieldElement>,
     raw_source_printing: bool,
+    foreign_call_resolver_url: Option<String>,
 ) -> Result<Option<WitnessStack<FieldElement>>, NargoError<FieldElement>> {
-    repl::run(solver, program, initial_witness, raw_source_printing)
+    repl::run(solver, program, initial_witness, raw_source_printing, foreign_call_resolver_url)
 }
 
 pub fn run_dap_loop<R: Read, W: Write, B: BlackBoxFunctionSolver<FieldElement>>(
