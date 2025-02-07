@@ -74,6 +74,7 @@ impl<'a, R: Read, W: Write, B: BlackBoxFunctionSolver<FieldElement>> DapSession<
             initial_witness,
             Box::new(DefaultDebugForeignCallExecutor::from_artifact(
                 PrintOutput::Stdout,
+                None, // TODO: set oracle_resolver url
                 debug_artifact,
             )),
             unconstrained_functions,
