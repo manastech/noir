@@ -10,6 +10,7 @@ use acvm::pwg::{
 };
 use acvm::{BlackBoxFunctionSolver, FieldElement};
 
+use bn254_blackbox_solver::Bn254BlackBoxSolver;
 use codespan_reporting::files::{Files, SimpleFile};
 use fm::FileId;
 use nargo::NargoError;
@@ -17,10 +18,12 @@ use nargo::errors::{ExecutionError, Location};
 use noirc_artifacts::debug::{DebugArtifact, StackFrame};
 use noirc_driver::DebugFile;
 
+use noirc_printable_type::{PrintableType, PrintableValue};
 use thiserror::Error;
 
 use std::collections::BTreeMap;
-use std::collections::{HashSet, hash_set::Iter};
+use std::collections::HashSet;
+use std::sync::mpsc::{Receiver, Sender};
 
 /// A Noir program is composed by
 /// `n` ACIR circuits
@@ -227,6 +230,74 @@ pub(super) enum DebugCommandResult {
     Error(NargoError<FieldElement>),
 }
 
+#[derive(Debug)]
+pub struct DebugStackFrame<F> {
+    pub function_name: String,
+    pub function_params: Vec<String>,
+    pub variables: Vec<(String, PrintableValue<F>, PrintableType)>,
+}
+
+impl<F: Clone> From<&StackFrame<'_, F>> for DebugStackFrame<F> {
+    fn from(value: &StackFrame<F>) -> Self {
+        DebugStackFrame {
+            function_name: value.function_name.to_string(),
+            function_params: value.function_params.iter().map(|param| param.to_string()).collect(),
+            variables: value
+                .variables
+                .iter()
+                .map(|(name, value, var_type)| {
+                    (name.to_string(), (**value).clone(), (*var_type).clone())
+                })
+                .collect(),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub(super) enum DebugCommandAPIResult {
+    DebugCommandResult(DebugCommandResult),
+    DebugLocation(Option<DebugLocation>),
+    Opcodes(Vec<Opcode<FieldElement>>),
+    Locations(Vec<Location>),
+    DebugLocations(Vec<DebugLocation>),
+    Bool(bool),
+    WitnessMap(WitnessMap<FieldElement>),
+    MemoryValue(Option<Vec<MemoryValue<FieldElement>>>),
+    Unit,
+    Variables(Vec<DebugStackFrame<FieldElement>>),
+    WitnessStack(WitnessStack<FieldElement>),
+    Field(Option<FieldElement>),
+}
+
+#[derive(Debug)]
+pub(super) enum DebugCommandAPI {
+    GetCurrentDebugLocation,
+    GetOpcodes,
+    GetOpcodesOfCircuit(u32),
+    GetSourceLocationForDebugLocation(DebugLocation),
+    GetCallStack,
+    IsBreakpointSet(DebugLocation),
+    IsValidDebugLocation(DebugLocation),
+    AddBreakpoint(DebugLocation),
+    DeleteBreakpoint(DebugLocation),
+    GetWitnessMap,
+    IsExecutingBrillig,
+    GetBrilligMemory,
+    WriteBrilligMemory(usize, FieldElement, BitSize),
+    OverwriteWitness(Witness, FieldElement),
+    GetVariables,
+    IsSolved,
+    Restart,
+    Finalize,
+    // execution control
+    StepAcirOpcode,
+    StepIntoOpcode,
+    NextInto,
+    NextOver,
+    NextOut,
+    Cont,
+}
+
 pub struct ExecutionFrame<'a, B: BlackBoxFunctionSolver<FieldElement>> {
     circuit_id: u32,
     acvm: ACVM<'a, FieldElement, B>,
@@ -251,6 +322,148 @@ pub(super) struct DebugContext<'a, B: BlackBoxFunctionSolver<FieldElement>> {
     unconstrained_functions: &'a [BrilligBytecode<FieldElement>],
 
     acir_opcode_addresses: AddressMap,
+    initial_witness: WitnessMap<FieldElement>,
+}
+
+pub(super) fn start_debugger<'a>(
+    command_rx: Receiver<DebugCommandAPI>,
+    result_tx: Sender<DebugCommandAPIResult>,
+    circuits: Vec<Circuit<FieldElement>>,
+    debug_artifact: &'a DebugArtifact,
+    initial_witness: WitnessMap<FieldElement>,
+    foreign_call_executor: Box<dyn DebugForeignCallExecutor + 'a>,
+    unconstrained_functions: Vec<BrilligBytecode<FieldElement>>,
+) {
+    // We are using the default Bn254BlackBoxSolver since BlackBoxFunctionSolver are not Send
+    // so we cannot send it between threads
+    let blackbox_solver = Bn254BlackBoxSolver::default(); // TODO: receive and configure pedantic_solving
+    let mut context = DebugContext::new(
+        &blackbox_solver,
+        &circuits,
+        debug_artifact,
+        initial_witness.clone(),
+        foreign_call_executor,
+        &unconstrained_functions,
+    );
+
+    println!("Debugger ready for receiving messages..");
+    loop {
+        // recv blocks until it receives message
+        if let Ok(received) = command_rx.recv() {
+            let result = match received {
+                DebugCommandAPI::GetCurrentDebugLocation => {
+                    DebugCommandAPIResult::DebugLocation(context.get_current_debug_location())
+                }
+                DebugCommandAPI::GetOpcodes => {
+                    DebugCommandAPIResult::Opcodes(to_vec(context.get_opcodes()))
+                }
+                DebugCommandAPI::GetOpcodesOfCircuit(circuit_id) => DebugCommandAPIResult::Opcodes(
+                    to_vec(context.get_opcodes_of_circuit(circuit_id)),
+                ),
+                DebugCommandAPI::GetSourceLocationForDebugLocation(debug_location) => {
+                    DebugCommandAPIResult::Locations(
+                        context.get_source_location_for_debug_location(&debug_location),
+                    )
+                }
+                DebugCommandAPI::GetCallStack => {
+                    DebugCommandAPIResult::DebugLocations(context.get_call_stack())
+                }
+                DebugCommandAPI::IsBreakpointSet(debug_location) => {
+                    DebugCommandAPIResult::Bool(context.is_breakpoint_set(&debug_location))
+                }
+                DebugCommandAPI::IsValidDebugLocation(debug_location) => {
+                    DebugCommandAPIResult::Bool(context.is_valid_debug_location(&debug_location))
+                }
+                DebugCommandAPI::AddBreakpoint(debug_location) => {
+                    DebugCommandAPIResult::Bool(context.add_breakpoint(debug_location))
+                }
+                DebugCommandAPI::DeleteBreakpoint(debug_location) => {
+                    DebugCommandAPIResult::Bool(context.delete_breakpoint(&debug_location))
+                }
+                DebugCommandAPI::Restart => {
+                    context.restart();
+                    DebugCommandAPIResult::Unit
+                }
+                DebugCommandAPI::GetWitnessMap => {
+                    DebugCommandAPIResult::WitnessMap(context.get_witness_map().clone())
+                }
+                DebugCommandAPI::IsExecutingBrillig => {
+                    DebugCommandAPIResult::Bool(context.is_executing_brillig())
+                }
+                DebugCommandAPI::GetBrilligMemory => DebugCommandAPIResult::MemoryValue(
+                    context.get_brillig_memory().map(|values| values.to_vec()),
+                ),
+                DebugCommandAPI::WriteBrilligMemory(ptr, value, bit_size) => {
+                    context.write_brillig_memory(ptr, value, bit_size);
+                    DebugCommandAPIResult::Unit
+                }
+                DebugCommandAPI::OverwriteWitness(witness, value) => {
+                    DebugCommandAPIResult::Field(context.overwrite_witness(witness, value))
+                }
+
+                DebugCommandAPI::GetVariables => DebugCommandAPIResult::Variables(
+                    context.get_variables().iter().map(|var| DebugStackFrame::from(var)).collect(),
+                ),
+                DebugCommandAPI::IsSolved => DebugCommandAPIResult::Bool(context.is_solved()),
+                DebugCommandAPI::StepAcirOpcode => {
+                    DebugCommandAPIResult::DebugCommandResult(context.step_acir_opcode())
+                }
+                DebugCommandAPI::StepIntoOpcode => {
+                    DebugCommandAPIResult::DebugCommandResult(context.step_into_opcode())
+                }
+                DebugCommandAPI::NextInto => {
+                    DebugCommandAPIResult::DebugCommandResult(context.next_into())
+                }
+                DebugCommandAPI::NextOver => {
+                    DebugCommandAPIResult::DebugCommandResult(context.next_over())
+                }
+                DebugCommandAPI::NextOut => {
+                    DebugCommandAPIResult::DebugCommandResult(context.next_out())
+                }
+                DebugCommandAPI::Cont => DebugCommandAPIResult::DebugCommandResult(context.cont()),
+                DebugCommandAPI::Finalize => {
+                    let witness_stack = context.finalize();
+                    let _ = result_tx.send(DebugCommandAPIResult::WitnessStack(witness_stack));
+                    // We need to stop the 'event loop' since `finalize` consumes the context
+                    drop(result_tx);
+                    drop(command_rx);
+                    break;
+                }
+            };
+            let Ok(()) = result_tx.send(result) else {
+                drop(result_tx);
+                drop(command_rx);
+                break;
+            };
+        } else {
+            println!("Upstream channel closed. Terminating debugger");
+            drop(result_tx);
+            drop(command_rx);
+            break;
+        }
+    }
+}
+
+fn to_vec(opcodes: &[Opcode<FieldElement>]) -> Vec<Opcode<FieldElement>> {
+    opcodes.iter().map(|op| op.clone()).collect()
+}
+
+fn initialize_acvm<'a, B: BlackBoxFunctionSolver<FieldElement>>(
+    backend: &'a B,
+    circuits: &'a [Circuit<FieldElement>],
+    initial_witness: WitnessMap<FieldElement>,
+    unconstrained_functions: &'a [BrilligBytecode<FieldElement>],
+) -> ACVM<'a, FieldElement, B> {
+    let current_circuit_id: u32 = 0;
+    let initial_circuit = &circuits[current_circuit_id as usize];
+
+    ACVM::new(
+        backend,
+        &initial_circuit.opcodes,
+        initial_witness,
+        unconstrained_functions,
+        &initial_circuit.assert_messages,
+    )
 }
 
 impl<'a, B: BlackBoxFunctionSolver<FieldElement>> DebugContext<'a, B> {
@@ -264,16 +477,8 @@ impl<'a, B: BlackBoxFunctionSolver<FieldElement>> DebugContext<'a, B> {
     ) -> Self {
         let source_to_opcodes = build_source_to_opcode_debug_mappings(debug_artifact);
         let current_circuit_id: u32 = 0;
-        let initial_circuit = &circuits[current_circuit_id as usize];
         let acir_opcode_addresses = AddressMap::new(circuits, unconstrained_functions);
         Self {
-            acvm: ACVM::new(
-                blackbox_solver,
-                &initial_circuit.opcodes,
-                initial_witness,
-                unconstrained_functions,
-                &initial_circuit.assert_messages,
-            ),
             current_circuit_id,
             brillig_solver: None,
             witness_stack: WitnessStack::default(),
@@ -286,6 +491,13 @@ impl<'a, B: BlackBoxFunctionSolver<FieldElement>> DebugContext<'a, B> {
             circuits,
             unconstrained_functions,
             acir_opcode_addresses,
+            initial_witness: initial_witness.clone(), // keeping it to be able to restart
+            acvm: initialize_acvm(
+                &blackbox_solver,
+                circuits,
+                initial_witness,
+                unconstrained_functions,
+            ),
         }
     }
 
@@ -299,10 +511,6 @@ impl<'a, B: BlackBoxFunctionSolver<FieldElement>> DebugContext<'a, B> {
 
     pub(super) fn get_witness_map(&self) -> &WitnessMap<FieldElement> {
         self.acvm.witness_map()
-    }
-
-    pub fn get_foreign_call_resolver_url(&self) -> Option<String> {
-        self.foreign_call_executor.as_ref().get_foreign_call_resolver_url()
     }
 
     pub(super) fn overwrite_witness(
@@ -553,7 +761,9 @@ impl<'a, B: BlackBoxFunctionSolver<FieldElement>> DebugContext<'a, B> {
         &mut self,
         foreign_call: ForeignCallWaitInfo<FieldElement>,
     ) -> DebugCommandResult {
+        println!("About to call foreign call executor");
         let foreign_call_result = self.foreign_call_executor.execute(&foreign_call);
+        println!("Executor ");
         match foreign_call_result {
             Ok(foreign_call_result) => {
                 if let Some(mut solver) = self.brillig_solver.take() {
@@ -848,10 +1058,6 @@ impl<'a, B: BlackBoxFunctionSolver<FieldElement>> DebugContext<'a, B> {
         self.breakpoints.remove(location)
     }
 
-    pub(super) fn iterate_breakpoints(&self) -> Iter<'_, DebugLocation> {
-        self.breakpoints.iter()
-    }
-
     pub(super) fn clear_breakpoints(&mut self) {
         self.breakpoints.clear();
     }
@@ -864,6 +1070,34 @@ impl<'a, B: BlackBoxFunctionSolver<FieldElement>> DebugContext<'a, B> {
         let last_witness_map = self.acvm.finalize();
         self.witness_stack.push(0, last_witness_map);
         self.witness_stack
+    }
+
+    fn restart(&mut self) {
+        // let breakpoints: Vec<DebugLocation> = self.iterate_breakpoints().copied().collect();
+        // let foreign_call_executor = Box::new(DefaultDebugForeignCallExecutor::from_artifact(
+        //     PrintOutput::Stdout,
+        //     self.context.get_foreign_call_resolver_url(),
+        //     self.debug_artifact,
+        // ));
+        // self.context = DebugContext::new(
+        //     self.blackbox_solver,
+        //     self.circuits,
+        //     self.debug_artifact,
+        //     self.initial_witness.clone(),
+        //     foreign_call_executor,
+        //     self.unconstrained_functions,
+        // );
+        // for debug_location in breakpoints {
+        //     self.context.add_breakpoint(debug_location);
+        // }
+        self.current_circuit_id = 0;
+        self.foreign_call_executor.restart(&self.debug_artifact);
+        self.acvm = initialize_acvm(
+            self.backend,
+            self.circuits,
+            self.initial_witness.clone(),
+            self.unconstrained_functions,
+        );
     }
 }
 
@@ -1042,7 +1276,7 @@ mod tests {
             None,
             debug_artifact,
         ));
-        let mut context = DebugContext::new(
+        let mut context = DebugContext::<StubbedBlackBoxSolver>::new(
             &solver,
             circuits,
             debug_artifact,
@@ -1212,7 +1446,7 @@ mod tests {
             debug_artifact,
         ));
         let brillig_funcs = &[brillig_bytecode];
-        let mut context = DebugContext::new(
+        let mut context = DebugContext::<StubbedBlackBoxSolver>::new(
             &solver,
             circuits,
             debug_artifact,
@@ -1300,7 +1534,7 @@ mod tests {
         let debug_artifact = DebugArtifact { debug_symbols: vec![], file_map: BTreeMap::new() };
         let brillig_funcs = &[brillig_one, brillig_two];
 
-        let context = DebugContext::new(
+        let context = DebugContext::<StubbedBlackBoxSolver>::new(
             &solver,
             &circuits,
             &debug_artifact,
