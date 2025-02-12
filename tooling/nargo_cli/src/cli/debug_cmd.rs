@@ -3,7 +3,6 @@ use std::path::PathBuf;
 use acvm::acir::circuit::ExpressionWidth;
 use acvm::acir::native_types::{WitnessMap, WitnessStack};
 use acvm::FieldElement;
-use bn254_blackbox_solver::Bn254BlackBoxSolver;
 use clap::Args;
 use fm::FileManager;
 use nargo::constants::PROVER_INPUT_FILE;
@@ -459,7 +458,7 @@ pub(crate) fn debug_program(
     foreign_call_resolver_url: Option<String>,
 ) -> Result<Option<WitnessStack<FieldElement>>, NargoError<FieldElement>> {
     noir_debugger::run_repl_session(
-        &Bn254BlackBoxSolver(pedantic_solving),
+        // &Bn254BlackBoxSolver(pedantic_solving),
         compiled_program,
         initial_witness,
         raw_source_printing,
