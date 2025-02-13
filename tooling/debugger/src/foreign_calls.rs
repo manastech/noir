@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use acvm::{
     acir::brillig::{ForeignCallParam, ForeignCallResult},
     pwg::ForeignCallWaitInfo,
@@ -58,18 +60,26 @@ impl DefaultDebugForeignCallExecutor {
         output: PrintOutput<'_>,
         resolver_url: Option<String>,
         ex: DefaultDebugForeignCallExecutor,
+        root_path: Option<PathBuf>,
+        package_name: String,
     ) -> impl DebugForeignCallExecutor + '_ {
-        DefaultForeignCallBuilder::default()
-            .with_output(output)
-            .with_resolver_url(resolver_url)
-            .build()
-            .add_layer(ex)
+        DefaultForeignCallBuilder {
+            output: output,
+            enable_mocks: true,
+            resolver_url: resolver_url,
+            root_path: root_path.clone(),
+            package_name: Some(package_name),
+        }
+        .build()
+        .add_layer(ex)
     }
 
     #[allow(clippy::new_ret_no_self, dead_code)]
     pub fn new(
         output: PrintOutput<'_>,
         resolver_url: Option<String>,
+        root_path: Option<PathBuf>,
+        package_name: String,
     ) -> impl DebugForeignCallExecutor + '_ {
         Self::make(
             output,
@@ -78,6 +88,8 @@ impl DefaultDebugForeignCallExecutor {
                 foreign_call_resolver_url: resolver_url,
                 ..Self::default()
             },
+            root_path,
+            package_name,
         )
     }
 
@@ -85,13 +97,15 @@ impl DefaultDebugForeignCallExecutor {
         output: PrintOutput<'a>,
         resolver_url: Option<String>,
         artifact: &DebugArtifact,
+        root_path: Option<PathBuf>,
+        package_name: String,
     ) -> impl DebugForeignCallExecutor + 'a {
         let mut ex = DefaultDebugForeignCallExecutor {
             foreign_call_resolver_url: resolver_url.clone(),
             ..Self::default()
         };
         ex.load_artifact(artifact);
-        Self::make(output, resolver_url, ex)
+        Self::make(output, resolver_url, ex, root_path, package_name)
     }
 
     pub fn load_artifact(&mut self, artifact: &DebugArtifact) {

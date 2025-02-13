@@ -97,16 +97,21 @@ where
     /// This method cannot be called from inside a `tokio` runtime, for that to work
     /// we need to offload the execution into a different thread; see the tests.
     fn execute(&mut self, foreign_call: &ForeignCallWaitInfo<F>) -> ResolveForeignCallResult<F> {
-        let encoded_params = rpc_params!(ResolveForeignCallRequest {
+        let params = ResolveForeignCallRequest {
             session_id: self.id,
             function_call: foreign_call.clone(),
-            root_path: self.root_path.clone().map(|path| path.to_str().unwrap().to_string()),
-            package_name: self.package_name.clone(),
-        });
+            root_path: self.root_path.clone().map(|path| path.to_str().unwrap().to_string()).or(Some(String::new())),
+            package_name: self.package_name.clone().or(Some(String::new())),
+        };
+        let serialized = serde_json::to_string(&params)?;
+        println!("Serialized params: {serialized}");
+        let encoded_params = rpc_params!(params);
 
         let parsed_response = self.runtime.block_on(async {
             self.external_resolver.request("resolve_foreign_call", encoded_params).await
         })?;
+
+        println!("RPC Response: {parsed_response:?}");
 
         Ok(parsed_response)
     }

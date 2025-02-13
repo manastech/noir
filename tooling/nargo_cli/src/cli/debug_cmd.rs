@@ -230,7 +230,7 @@ fn debug_main(
     let compiled_program =
         compile_bin_package_for_debugging(&workspace, package, &compile_options, expression_width)?;
 
-    run_async(package, compiled_program, execution_params).map(|_| ())
+    run_async(package, compiled_program, &workspace, execution_params).map(|_| ())
 }
 
 fn debug_test(
@@ -268,7 +268,7 @@ fn debug_test(
             let debug = compiled_program.debug.clone();
 
             // Debug test
-            let debug_result = run_async(package, compiled_program, execution_params);
+            let debug_result = run_async(package, compiled_program, &workspace, execution_params);
 
             match debug_result {
                 Ok(result) => {
@@ -363,6 +363,7 @@ type ExecutionResult =
 fn run_async(
     package: &Package,
     program: CompiledProgram,
+    workspace: &Workspace,
     execution_params: ExecutionParams,
 ) -> Result<DebugResult, CliError> {
     use tokio::runtime::Builder;
@@ -370,7 +371,7 @@ fn run_async(
 
     runtime.block_on(async {
         println!("[{}] Starting debugger", package.name);
-        let debug_result = debug_program_and_decode(program, package, &execution_params)?;
+        let debug_result = debug_program_and_decode(program, package, workspace, &execution_params)?;
 
         match debug_result {
             Ok((return_value, witness_stack)) => {
@@ -405,6 +406,7 @@ fn run_async(
 fn debug_program_and_decode(
     program: CompiledProgram,
     package: &Package,
+    workspace: &Workspace,
     execution_params: &ExecutionParams,
 ) -> Result<ExecutionResult, CliError> {
     let program_abi = program.abi.clone();
@@ -415,6 +417,8 @@ fn debug_program_and_decode(
         initial_witness,
         execution_params.pedantic_solving,
         execution_params.oracle_resolver_url.clone(),
+        Some(workspace.root_dir.clone()),
+        package.name.to_string()
     );
     match debug_result {
         Ok(witness_stack) => match witness_stack {
@@ -448,11 +452,15 @@ pub(crate) fn debug_program(
     initial_witness: WitnessMap<FieldElement>,
     pedantic_solving: bool,
     foreign_call_resolver_url: Option<String>,
+    root_path: Option<PathBuf>,
+    package_name: String,
 ) -> Result<Option<WitnessStack<FieldElement>>, NargoError<FieldElement>> {
     noir_debugger::run_repl_session(
         // &Bn254BlackBoxSolver(pedantic_solving),
         compiled_program,
         initial_witness,
         foreign_call_resolver_url,
+        root_path,
+        package_name,
     )
 }

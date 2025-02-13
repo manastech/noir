@@ -757,7 +757,7 @@ impl<'a, B: BlackBoxFunctionSolver<FieldElement>> DebugContext<'a, B> {
     ) -> DebugCommandResult {
         println!("About to call foreign call executor");
         let foreign_call_result = self.foreign_call_executor.execute(&foreign_call);
-        println!("Executor ");
+        println!("Executor response: {foreign_call_result:?}");
         match foreign_call_result {
             Ok(foreign_call_result) => {
                 if let Some(mut solver) = self.brillig_solver.take() {
@@ -1269,6 +1269,8 @@ mod tests {
             PrintOutput::Stdout,
             None,
             debug_artifact,
+            None,
+            String::new(),
         ));
         let mut context = DebugContext::<StubbedBlackBoxSolver>::new(
             &solver,
@@ -1438,6 +1440,8 @@ mod tests {
             PrintOutput::Stdout,
             None,
             debug_artifact,
+            None,
+            String::new(),
         ));
         let brillig_funcs = &[brillig_bytecode];
         let mut context = DebugContext::<StubbedBlackBoxSolver>::new(
@@ -1533,7 +1537,12 @@ mod tests {
             &circuits,
             &debug_artifact,
             WitnessMap::new(),
-            Box::new(DefaultDebugForeignCallExecutor::new(PrintOutput::Stdout, None)),
+            Box::new(DefaultDebugForeignCallExecutor::new(
+                PrintOutput::Stdout,
+                None,
+                None,
+                String::new(),
+            )),
             brillig_funcs,
         );
 

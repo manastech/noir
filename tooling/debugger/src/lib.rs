@@ -6,6 +6,7 @@ mod repl;
 mod source_code_printer;
 
 use std::io::{Read, Write};
+use std::path::PathBuf;
 
 use ::dap::errors::ServerError;
 use ::dap::server::Server;
@@ -20,8 +21,10 @@ pub fn run_repl_session(
     program: CompiledProgram,
     initial_witness: WitnessMap<FieldElement>,
     foreign_call_resolver_url: Option<String>,
+    root_path: Option<PathBuf>,
+    package_name: String,
 ) -> Result<Option<WitnessStack<FieldElement>>, NargoError<FieldElement>> {
-    repl::run(program, initial_witness, foreign_call_resolver_url)
+    repl::run(program, initial_witness, foreign_call_resolver_url, root_path, package_name)
 }
 
 pub fn run_dap_loop<R: Read, W: Write, B: BlackBoxFunctionSolver<FieldElement>>(
@@ -29,6 +32,8 @@ pub fn run_dap_loop<R: Read, W: Write, B: BlackBoxFunctionSolver<FieldElement>>(
     solver: &B,
     program: CompiledProgram,
     initial_witness: WitnessMap<FieldElement>,
+    root_path: Option<PathBuf>,
+    package_name: String,
 ) -> Result<(), ServerError> {
-    dap::run_session(server, solver, program, initial_witness)
+    dap::run_session(server, solver, program, initial_witness, root_path, package_name)
 }
