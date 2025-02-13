@@ -103,15 +103,10 @@ where
             root_path: self.root_path.clone().map(|path| path.to_str().unwrap().to_string()).or(Some(String::new())),
             package_name: self.package_name.clone().or(Some(String::new())),
         };
-        let serialized = serde_json::to_string(&params)?;
-        println!("Serialized params: {serialized}");
         let encoded_params = rpc_params!(params);
-
         let parsed_response = self.runtime.block_on(async {
             self.external_resolver.request("resolve_foreign_call", encoded_params).await
         })?;
-
-        println!("RPC Response: {parsed_response:?}");
 
         Ok(parsed_response)
     }
