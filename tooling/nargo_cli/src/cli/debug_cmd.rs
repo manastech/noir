@@ -291,7 +291,7 @@ fn debug_test(
     // TODO: use prettyFormatter for showing test results
     match &test_status {
         TestStatus::Pass { .. } => println!("OK"),
-        TestStatus::Fail { message, .. } => println!("FAIL\n{message}\n"),
+        TestStatus::Fail { message, error_diagnostic } => println!("FAIL\n{message}. {error_diagnostic:?}\n"),
         TestStatus::Skipped => println!("skipped"),
         TestStatus::CompileError(err) => {
             noirc_errors::reporter::report_all(
