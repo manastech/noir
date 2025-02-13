@@ -11,7 +11,7 @@ use noirc_driver::{CompileOptions, CompiledProgram, NOIR_ARTIFACT_VERSION_STRING
 use noirc_frontend::graph::CrateName;
 
 use std::io::{BufReader, BufWriter, Read, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use dap::requests::Command;
 use dap::responses::ResponseBody;
@@ -105,7 +105,7 @@ fn load_and_compile_project(
     expression_width: ExpressionWidth,
     acir_mode: bool,
     skip_instrumentation: bool,
-) -> Result<(CompiledProgram, WitnessMap<FieldElement>), LoadError> {
+) -> Result<(CompiledProgram, WitnessMap<FieldElement>, PathBuf, String), LoadError> {
     let workspace = find_workspace(project_folder, package)
         .ok_or(LoadError::Generic(workspace_not_found_error_msg(project_folder, package)))?;
     let package = workspace
@@ -132,7 +132,7 @@ fn load_and_compile_project(
         .encode(&inputs_map, None)
         .map_err(|_| LoadError::Generic("Failed to encode inputs".into()))?;
 
-    Ok((compiled_program, initial_witness))
+    Ok((compiled_program, initial_witness, workspace.root_dir.clone(), package.name.to_string()))
 }
 
 fn loop_uninitialized_dap<R: Read, W: Write>(
@@ -189,7 +189,7 @@ fn loop_uninitialized_dap<R: Read, W: Write>(
                     generate_acir,
                     skip_instrumentation,
                 ) {
-                    Ok((compiled_program, initial_witness)) => {
+                    Ok((compiled_program, initial_witness, root_path, package_name)) => {
                         server.respond(req.ack()?)?;
 
                         noir_debugger::run_dap_loop(
@@ -197,6 +197,8 @@ fn loop_uninitialized_dap<R: Read, W: Write>(
                             &Bn254BlackBoxSolver(pedantic_solving),
                             compiled_program,
                             initial_witness,
+                            Some(root_path), 
+                            package_name,
                         )?;
                         break;
                     }

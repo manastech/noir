@@ -20,6 +20,7 @@ use noirc_artifacts::debug::DebugArtifact;
 use easy_repl::{CommandStatus, Repl, command};
 use noirc_printable_type::PrintableValueDisplay;
 use std::cell::RefCell;
+use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 
@@ -544,6 +545,8 @@ pub fn run(
     initial_witness: WitnessMap<FieldElement>,
     raw_source_printing: bool,
     foreign_call_resolver_url: Option<String>,
+    root_path: Option<PathBuf>,
+    package_name: String,
 ) -> Result<Option<WitnessStack<FieldElement>>, NargoError<FieldElement>> {
     let debugger_circuits = program.program.functions.clone();
     let circuits = &program.program.functions;
@@ -557,11 +560,13 @@ pub fn run(
         PrintOutput::Stdout,
         foreign_call_resolver_url,
         &debugger_artifact,
+        root_path,
+        package_name,
     ));
 
     let (command_tx, command_rx) = mpsc::channel::<DebugCommandAPI>();
     let (result_tx, result_rx) = mpsc::channel::<DebugCommandAPIResult>();
-    let debugger_handler = thread::spawn(move || {
+    thread::spawn(move || {
         start_debugger(
             command_rx,
             result_tx,

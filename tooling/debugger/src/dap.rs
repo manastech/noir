@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::io::{Read, Write};
+use std::path::PathBuf;
 
 use acvm::acir::circuit::Circuit;
 use acvm::acir::circuit::brillig::BrilligBytecode;
@@ -66,6 +67,8 @@ impl<'a, R: Read, W: Write, B: BlackBoxFunctionSolver<FieldElement>> DapSession<
         debug_artifact: &'a DebugArtifact,
         initial_witness: WitnessMap<FieldElement>,
         unconstrained_functions: &'a [BrilligBytecode<FieldElement>],
+        root_path: Option<PathBuf>,
+        package_name: String,
     ) -> Self {
         let context = DebugContext::new(
             solver,
@@ -76,6 +79,8 @@ impl<'a, R: Read, W: Write, B: BlackBoxFunctionSolver<FieldElement>> DapSession<
                 PrintOutput::Stdout,
                 None, // TODO: set oracle_resolver url
                 debug_artifact,
+                root_path,
+                package_name
             )),
             unconstrained_functions,
         );
@@ -612,6 +617,8 @@ pub fn run_session<R: Read, W: Write, B: BlackBoxFunctionSolver<FieldElement>>(
     solver: &B,
     program: CompiledProgram,
     initial_witness: WitnessMap<FieldElement>,
+    root_path: Option<PathBuf>,
+    package_name: String,
 ) -> Result<(), ServerError> {
     let debug_artifact = DebugArtifact { debug_symbols: program.debug, file_map: program.file_map };
     let mut session = DapSession::new(
@@ -621,6 +628,8 @@ pub fn run_session<R: Read, W: Write, B: BlackBoxFunctionSolver<FieldElement>>(
         &debug_artifact,
         initial_witness,
         &program.program.unconstrained_functions,
+        root_path,
+        package_name
     );
 
     session.run_loop()

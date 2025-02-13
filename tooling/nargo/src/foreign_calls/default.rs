@@ -54,12 +54,6 @@ impl<'a> DefaultForeignCallBuilder<'a> {
         self
     }
 
-    /// Override the output.
-    pub fn with_resolver_url(mut self, resolver_url: Option<String>) -> Self {
-        self.resolver_url = resolver_url;
-        self
-    }
-
     /// Enable or disable mocks.
     pub fn with_mocks(mut self, enabled: bool) -> Self {
         self.enable_mocks = enabled;
