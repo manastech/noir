@@ -19,7 +19,7 @@ use dap::server::Server;
 use dap::types::Capabilities;
 use serde_json::Value;
 
-use super::debug_cmd::compile_bin_package_for_debugging;
+use super::debug_cmd::{compile_bin_package_for_debugging, compile_options_for_debugging};
 use crate::errors::CliError;
 
 use noir_debugger::errors::{DapError, LoadError};
@@ -113,16 +113,16 @@ fn load_and_compile_project(
         .find(|p| p.is_binary())
         .ok_or(LoadError::Generic("No matching binary packages found in workspace".into()))?;
 
+        let compile_options =
+        compile_options_for_debugging(acir_mode, skip_instrumentation, CompileOptions::default());
     let compiled_program = compile_bin_package_for_debugging(
         &workspace,
         package,
-        acir_mode,
-        skip_instrumentation,
-        CompileOptions::default(),
+        &compile_options,
+        expression_width,
     )
     .map_err(|_| LoadError::Generic("Failed to compile project".into()))?;
 
-    let compiled_program = nargo::ops::transform_program(compiled_program, expression_width);
 
     let (inputs_map, _) = read_inputs_from_file(
         &package.root_dir.join(prover_name).with_extension("toml"),
