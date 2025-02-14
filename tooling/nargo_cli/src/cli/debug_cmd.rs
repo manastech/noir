@@ -281,7 +281,7 @@ fn debug_test(
                     test_status_program_compile_pass(&test_function, &abi, &debug, &result)
                 }
                 Err(error) => TestStatus::Fail {
-                    message: format!("Debugger failed: {}", error),
+                    message: format!("Debugger failed: {:?}", error),
                     error_diagnostic: None,
                 },
             }
@@ -291,7 +291,9 @@ fn debug_test(
     // TODO: use prettyFormatter for showing test results
     match &test_status {
         TestStatus::Pass { .. } => println!("OK"),
-        TestStatus::Fail { message, error_diagnostic } => println!("FAIL\n{message}. {error_diagnostic:?}\n"),
+        TestStatus::Fail { message, error_diagnostic } => {
+            println!("FAIL\n{message}. {error_diagnostic:?}\n")
+        }
         TestStatus::Skipped => println!("skipped"),
         TestStatus::CompileError(err) => {
             noirc_errors::reporter::report_all(
@@ -377,7 +379,8 @@ fn run_async(
 
     runtime.block_on(async {
         println!("[{}] Starting debugger", package.name);
-        let debug_result = debug_program_and_decode(program, package, workspace, &execution_params)?;
+        let debug_result =
+            debug_program_and_decode(program, package, workspace, &execution_params)?;
 
         match debug_result {
             Ok((return_value, witness_stack)) => {
@@ -425,7 +428,7 @@ fn debug_program_and_decode(
         execution_params.raw_source_printing,
         execution_params.oracle_resolver_url.clone(),
         Some(workspace.root_dir.clone()),
-        package.name.to_string()
+        package.name.to_string(),
     );
     match debug_result {
         Ok(witness_stack) => match witness_stack {

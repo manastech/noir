@@ -195,7 +195,7 @@ fn loop_uninitialized_dap<R: Read, W: Write>(
                             &Bn254BlackBoxSolver(pedantic_solving),
                             compiled_program,
                             initial_witness,
-                            Some(root_path), 
+                            Some(root_path),
                             package_name,
                         )?;
                         break;
