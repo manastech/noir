@@ -1,7 +1,7 @@
 use crate::foreign_calls::DebugForeignCallExecutor;
 use acvm::acir::brillig::BitSize;
 use acvm::acir::circuit::brillig::{BrilligBytecode, BrilligFunctionId};
-use acvm::acir::circuit::{Circuit, Opcode, OpcodeLocation};
+use acvm::acir::circuit::{Circuit, Opcode, OpcodeLocation, ResolvedOpcodeLocation};
 use acvm::acir::native_types::{Witness, WitnessMap, WitnessStack};
 use acvm::brillig_vm::MemoryValue;
 use acvm::pwg::{
@@ -13,8 +13,8 @@ use acvm::{BlackBoxFunctionSolver, FieldElement};
 use bn254_blackbox_solver::Bn254BlackBoxSolver;
 use codespan_reporting::files::{Files, SimpleFile};
 use fm::FileId;
+use nargo::errors::{map_execution_error, ExecutionError, Location};
 use nargo::NargoError;
-use nargo::errors::{ExecutionError, Location};
 use noirc_artifacts::debug::{DebugArtifact, StackFrame};
 use noirc_driver::DebugFile;
 
@@ -751,9 +751,23 @@ impl<'a, B: BlackBoxFunctionSolver<FieldElement>> DebugContext<'a, B> {
                 self.brillig_solver = Some(solver);
                 self.handle_foreign_call(foreign_call)
             }
-            Err(err) => DebugCommandResult::Error(NargoError::ExecutionError(
-                ExecutionError::SolvingError(err, None),
-            )),
+            Err(err) => {
+                let resolved_call_stack: Vec<ResolvedOpcodeLocation> = self
+                    .get_call_stack()
+                    .iter()
+                    .map(|debug_loc| {
+                        ResolvedOpcodeLocation {
+                            acir_function_index: usize::try_from(debug_loc.circuit_id).unwrap(), // FIXME: is this ok? why circuit_id is u32?
+                            opcode_location: debug_loc.opcode_location,
+                        }
+                    })
+                    .collect();
+
+                DebugCommandResult::Error(NargoError::ExecutionError(map_execution_error(
+                    err,
+                    &resolved_call_stack,
+                )))
+            }
         }
     }
 
