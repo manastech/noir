@@ -100,7 +100,11 @@ where
         let params = ResolveForeignCallRequest {
             session_id: self.id,
             function_call: foreign_call.clone(),
-            root_path: self.root_path.clone().map(|path| path.to_str().unwrap().to_string()).or(Some(String::new())),
+            root_path: self
+                .root_path
+                .clone()
+                .map(|path| path.to_str().unwrap().to_string())
+                .or(Some(String::new())),
             package_name: self.package_name.clone().or(Some(String::new())),
         };
         let encoded_params = rpc_params!(params);
