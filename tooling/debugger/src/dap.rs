@@ -80,7 +80,7 @@ impl<'a, R: Read, W: Write, B: BlackBoxFunctionSolver<FieldElement>> DapSession<
                 None, // TODO: set oracle_resolver url
                 debug_artifact,
                 root_path,
-                package_name
+                package_name,
             )),
             unconstrained_functions,
         );
@@ -629,7 +629,7 @@ pub fn run_session<R: Read, W: Write, B: BlackBoxFunctionSolver<FieldElement>>(
         initial_witness,
         &program.program.unconstrained_functions,
         root_path,
-        package_name
+        package_name,
     );
 
     session.run_loop()
