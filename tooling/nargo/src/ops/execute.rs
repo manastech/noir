@@ -1,6 +1,6 @@
 use acvm::acir::circuit::brillig::BrilligBytecode;
 use acvm::acir::circuit::{
-    OpcodeLocation, Program, ResolvedAssertionPayload, ResolvedOpcodeLocation,
+    OpcodeLocation, Program, ResolvedOpcodeLocation,
 };
 use acvm::acir::native_types::WitnessStack;
 use acvm::pwg::{
