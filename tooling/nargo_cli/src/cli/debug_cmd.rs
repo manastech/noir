@@ -1,4 +1,6 @@
 use std::path::Path;
+use std::path::PathBuf;
+use std::time::Duration;
 
 use acvm::FieldElement;
 use acvm::acir::circuit::ExpressionWidth;
@@ -34,7 +36,11 @@ use noirc_frontend::hir::{Context, FunctionNameMatch, ParsedFiles};
 
 use super::check_cmd::check_crate_and_report_errors;
 use super::compile_cmd::get_target_width;
+use super::fs::{inputs::read_inputs_from_file, witness::save_witness_to_dir};
+use super::test_cmd::formatters::Formatter;
+use super::test_cmd::TestResult;
 use super::{LockType, WorkspaceCommand};
+use crate::cli::test_cmd::formatters::PrettyFormatter;
 use crate::errors::CliError;
 
 /// Executes a circuit in debug mode
@@ -251,6 +257,7 @@ fn debug_test(
     execution_params: ExecutionParams,
     expression_width: ExpressionWidth,
 ) -> Result<(), CliError> {
+    let package_name = package.name.to_string();
     // let workspace_file_manager = build_workspace_file_manager(&workspace.root_dir, &workspace);
     // TODO: extract fileManager creation + insert files into single function build_workspace_file_manager
     let mut workspace_file_manager = file_manager_with_stdlib(Path::new(""));
@@ -261,7 +268,7 @@ fn debug_test(
         prepare_package_for_debug(&workspace_file_manager, &mut parsed_files, package);
 
     check_crate_and_report_errors(&mut context, crate_id, &compile_options)?;
-    let test_function = get_test_function(crate_id, &context, &test_name)?;
+    let (test_name, test_function) = get_test_function(crate_id, &context, &test_name)?;
 
     // TODO: see if we can replace with compile_bin_for_debugging
     let compiled_program =
@@ -284,6 +291,7 @@ fn debug_test(
                 Ok(result) => {
                     test_status_program_compile_pass(&test_function, &abi, &debug, &result)
                 }
+                // Debugger failed
                 Err(error) => TestStatus::Fail {
                     message: format!("Debugger failed: {:?}", error),
                     error_diagnostic: None,
@@ -292,22 +300,19 @@ fn debug_test(
         }
         Err(err) => test_status_program_compile_fail(err, &test_function),
     };
-    // TODO: use prettyFormatter for showing test results
-    match &test_status {
-        TestStatus::Pass { .. } => println!("OK"),
-        TestStatus::Fail { message, error_diagnostic } => {
-            println!("FAIL\n{message}. {error_diagnostic:?}\n")
-        }
-        TestStatus::Skipped => println!("skipped"),
-        TestStatus::CompileError(err) => {
-            noirc_errors::reporter::report_all(
-                workspace_file_manager.as_file_map(),
-                &[err.clone()],
-                compile_options.deny_warnings,
-                compile_options.silence_warnings,
-            );
-        }
-    }
+    let test_result = TestResult::new(
+        test_name,
+        package_name,
+        test_status,
+        String::new(),
+        Duration::from_secs(1), // FIXME: hardcoded value
+    );
+
+    let formatter: Box<dyn Formatter> = Box::new(PrettyFormatter);
+    formatter
+        .test_end_sync(&test_result, 1, 1, &workspace_file_manager, true, false, false)
+        .expect("Could not display test result");
+
     Ok(())
 }
 
@@ -316,13 +321,13 @@ fn get_test_function(
     crate_id: CrateId,
     context: &Context,
     test_name: &str,
-) -> Result<TestFunction, CliError> {
+) -> Result<(String, TestFunction), CliError> {
     // TODO: review Contains signature and check if its ok to send test_name as single element
     let test_pattern = FunctionNameMatch::Contains(vec![test_name.into()]);
 
     let test_functions = context.get_all_test_functions_in_crate_matching(&crate_id, &test_pattern);
 
-    let test_function = match test_functions {
+    let (test_name, test_function) = match test_functions {
         matchings if matchings.is_empty() => {
             return Err(CliError::Generic(format!(
                 "`{}` does not match with any test function",
@@ -330,8 +335,8 @@ fn get_test_function(
             )));
         }
         matchings if matchings.len() == 1 => {
-            let (_, test_func) = matchings.into_iter().next().unwrap();
-            test_func
+            let (name, test_func) = matchings.into_iter().next().unwrap();
+            (name, test_func)
         }
         _ => {
             return Err(CliError::Generic(format!(
@@ -351,7 +356,7 @@ fn get_test_function(
     if test_function_has_arguments {
         return Err(CliError::Generic(String::from("Cannot debug tests with arguments")));
     }
-    Ok(test_function)
+    Ok((test_name, test_function))
 }
 
 pub(crate) fn prepare_package_for_debug<'a>(
