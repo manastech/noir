@@ -244,3 +244,36 @@ pub fn try_to_diagnose_runtime_error(
     let error = CustomDiagnostic::simple_error(message, String::new(), location);
     Some(error.with_call_stack(source_locations).in_file(location.file))
 }
+
+pub fn map_execution_error<F: AcirField>(
+    error: OpcodeResolutionError<F>,
+    call_stack: &Vec<ResolvedOpcodeLocation>,
+) -> ExecutionError<F> {
+    let call_stack = match &error {
+        OpcodeResolutionError::UnsatisfiedConstrain { .. }
+        | OpcodeResolutionError::IndexOutOfBounds { .. }
+        | OpcodeResolutionError::InvalidInputBitSize { .. }
+        | OpcodeResolutionError::BrilligFunctionFailed { .. } => Some(call_stack.clone()),
+        _ => None,
+    };
+
+    let assertion_payload: Option<ResolvedAssertionPayload<F>> = match &error {
+        OpcodeResolutionError::BrilligFunctionFailed { payload, .. }
+        | OpcodeResolutionError::UnsatisfiedConstrain { payload, .. } => payload.clone(),
+        _ => None,
+    };
+
+    let brillig_function_id = match &error {
+        OpcodeResolutionError::BrilligFunctionFailed { function_id, .. } => Some(*function_id),
+        _ => None,
+    };
+
+    return match assertion_payload {
+        Some(payload) => ExecutionError::AssertionFailed(
+            payload,
+            call_stack.expect("Should have call stack for an assertion failure"),
+            brillig_function_id,
+        ),
+        None => ExecutionError::SolvingError(error, call_stack),
+    };
+}
