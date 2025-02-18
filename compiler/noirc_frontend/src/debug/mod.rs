@@ -77,7 +77,7 @@ impl DebugInstrumenter {
                         self.walk_fn(&mut f.def);
                     }
                 });
-                self.insert_state_set_oracle(contract_module, 8);
+                self.insert_state_set_oracle(contract_module, 8, file);
             }
         });
 

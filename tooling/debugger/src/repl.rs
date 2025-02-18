@@ -540,13 +540,13 @@ impl<'a> ReplDebugger<'a> {
 }
 
 pub fn run(
-    // blackbox_solver: &B,
     program: CompiledProgram,
     initial_witness: WitnessMap<FieldElement>,
     raw_source_printing: bool,
     foreign_call_resolver_url: Option<String>,
     root_path: Option<PathBuf>,
     package_name: String,
+    pedantic_solving: bool,
 ) -> Result<Option<WitnessStack<FieldElement>>, NargoError<FieldElement>> {
     let debugger_circuits = program.program.functions.clone();
     let circuits = &program.program.functions;
@@ -575,6 +575,7 @@ pub fn run(
             initial_witness,
             foreign_call_executor,
             debugger_unconstrained_functions,
+            pedantic_solving,
         );
     });
 

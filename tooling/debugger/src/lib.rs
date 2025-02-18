@@ -17,15 +17,23 @@ use nargo::NargoError;
 use noirc_driver::CompiledProgram;
 
 pub fn run_repl_session(
-    // solver: &B,
     program: CompiledProgram,
     initial_witness: WitnessMap<FieldElement>,
     raw_source_printing: bool,
     foreign_call_resolver_url: Option<String>,
     root_path: Option<PathBuf>,
     package_name: String,
+    pedantic_solving: bool,
 ) -> Result<Option<WitnessStack<FieldElement>>, NargoError<FieldElement>> {
-    repl::run(program, initial_witness, raw_source_printing, foreign_call_resolver_url, root_path, package_name)
+    repl::run(
+        program,
+        initial_witness,
+        raw_source_printing,
+        foreign_call_resolver_url,
+        root_path,
+        package_name,
+        pedantic_solving,
+    )
 }
 
 pub fn run_dap_loop<R: Read, W: Write, B: BlackBoxFunctionSolver<FieldElement>>(
