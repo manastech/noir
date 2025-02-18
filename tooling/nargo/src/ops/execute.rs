@@ -1,7 +1,5 @@
 use acvm::acir::circuit::brillig::BrilligBytecode;
-use acvm::acir::circuit::{
-    OpcodeLocation, Program, ResolvedOpcodeLocation,
-};
+use acvm::acir::circuit::{OpcodeLocation, Program, ResolvedOpcodeLocation};
 use acvm::acir::native_types::WitnessStack;
 use acvm::pwg::{
     ACVM, ACVMStatus, ErrorLocation, OpcodeNotSolvable, OpcodeResolutionError, ProfilingSamples,

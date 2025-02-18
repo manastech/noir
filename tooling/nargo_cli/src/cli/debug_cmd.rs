@@ -265,7 +265,7 @@ fn debug_test(
 
     let mut parsed_files = parse_all(&workspace_file_manager);
     let (mut context, crate_id) =
-        prepare_package_for_debug(&workspace_file_manager, &mut parsed_files, package);
+        prepare_package_for_debug(&workspace_file_manager, &mut parsed_files, package, &workspace);
 
     check_crate_and_report_errors(&mut context, crate_id, &compile_options)?;
     let (test_name, test_function) = get_test_function(crate_id, &context, &test_name)?;
@@ -363,6 +363,7 @@ pub(crate) fn prepare_package_for_debug<'a>(
     file_manager: &'a FileManager,
     parsed_files: &'a mut ParsedFiles,
     package: &'a Package,
+    workspace: &Workspace,
 ) -> (Context<'a, 'a>, CrateId) {
     let debug_instrumenter = instrument_package_files(parsed_files, file_manager, package);
 
@@ -370,6 +371,7 @@ pub(crate) fn prepare_package_for_debug<'a>(
     let (mut context, crate_id) = prepare_package(file_manager, parsed_files, package);
     link_to_debug_crate(&mut context, crate_id);
     context.debug_instrumenter = debug_instrumenter;
+    context.package_build_path = workspace.package_build_path(package);
     (context, crate_id)
 }
 
