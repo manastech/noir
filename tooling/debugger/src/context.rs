@@ -333,10 +333,9 @@ pub(super) fn start_debugger<'a>(
     initial_witness: WitnessMap<FieldElement>,
     foreign_call_executor: Box<dyn DebugForeignCallExecutor + 'a>,
     unconstrained_functions: Vec<BrilligBytecode<FieldElement>>,
+    pedantic_solving: bool,
 ) {
-    // We are using the default Bn254BlackBoxSolver since BlackBoxFunctionSolver are not Send
-    // so we cannot send it between threads
-    let blackbox_solver = Bn254BlackBoxSolver::default(); // TODO: receive and configure pedantic_solving
+    let blackbox_solver = Bn254BlackBoxSolver(pedantic_solving);
     let mut context = DebugContext::new(
         &blackbox_solver,
         &circuits,

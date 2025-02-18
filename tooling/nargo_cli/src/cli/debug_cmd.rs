@@ -464,11 +464,11 @@ pub(crate) fn debug_program(
     package_name: String,
 ) -> Result<Option<WitnessStack<FieldElement>>, NargoError<FieldElement>> {
     noir_debugger::run_repl_session(
-        // &Bn254BlackBoxSolver(pedantic_solving),
         compiled_program,
         initial_witness,
         foreign_call_resolver_url,
         root_path,
         package_name,
+        pedantic_solving,
     )
 }
