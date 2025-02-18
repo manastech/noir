@@ -774,9 +774,14 @@ impl<'a, B: BlackBoxFunctionSolver<FieldElement>> DebugContext<'a, B> {
         &mut self,
         foreign_call: ForeignCallWaitInfo<FieldElement>,
     ) -> DebugCommandResult {
-        println!("Foreign call: {foreign_call:?}");
+        if !foreign_call.function.starts_with("__debug") {
+            println!("Foreign call: {foreign_call:?}");
+        }
         let foreign_call_result = self.foreign_call_executor.execute(&foreign_call);
-        println!("Executor response: {foreign_call_result:?}");
+
+        if !foreign_call.function.starts_with("__debug") {
+            println!("Executor response: {foreign_call_result:?}");
+        }
         match foreign_call_result {
             Ok(foreign_call_result) => {
                 if let Some(mut solver) = self.brillig_solver.take() {
