@@ -19,6 +19,8 @@ pub struct RPCForeignCallExecutor {
     id: u64,
     /// JSON RPC client to resolve foreign calls
     external_resolver: HttpClient,
+
+    resolver_url: String,
     /// Root path to the program or workspace in execution.
     root_path: Option<PathBuf>,
     /// Name of the package in execution
@@ -59,17 +61,7 @@ impl RPCForeignCallExecutor {
         root_path: Option<PathBuf>,
         package_name: Option<String>,
     ) -> Self {
-        let mut client_builder = HttpClientBuilder::new();
-
-        if let Some(Ok(timeout)) =
-            std::env::var("NARGO_FOREIGN_CALL_TIMEOUT").ok().map(|timeout| timeout.parse())
-        {
-            let timeout_duration = std::time::Duration::from_millis(timeout);
-            client_builder = client_builder.request_timeout(timeout_duration);
-        };
-
-        let oracle_resolver =
-            client_builder.build(resolver_url).expect("Invalid oracle resolver URL");
+        let oracle_resolver = build_http_client(resolver_url);
 
         // Opcodes are executed in the `ProgramExecutor::execute_circuit` one by one in a loop,
         // we don't need a concurrent thread pool.
@@ -81,22 +73,21 @@ impl RPCForeignCallExecutor {
 
         RPCForeignCallExecutor {
             external_resolver: oracle_resolver,
+            resolver_url: resolver_url.to_string(),
             id,
             root_path,
             package_name,
             runtime,
         }
     }
-}
 
-impl<F> ForeignCallExecutor<F> for RPCForeignCallExecutor
-where
-    F: AcirField + Serialize + for<'a> Deserialize<'a>,
-{
-    /// Execute an async call blocking the current thread.
-    /// This method cannot be called from inside a `tokio` runtime, for that to work
-    /// we need to offload the execution into a different thread; see the tests.
-    fn execute(&mut self, foreign_call: &ForeignCallWaitInfo<F>) -> ResolveForeignCallResult<F> {
+    fn send_foreign_call<F>(
+        &mut self,
+        foreign_call: &ForeignCallWaitInfo<F>,
+    ) -> Result<ForeignCallResult<F>, jsonrpsee::core::ClientError>
+    where
+        F: AcirField + Serialize + for<'a> Deserialize<'a>,
+    {
         let params = ResolveForeignCallRequest {
             session_id: self.id,
             function_call: foreign_call.clone(),
@@ -108,11 +99,46 @@ where
             package_name: self.package_name.clone().or(Some(String::new())),
         };
         let encoded_params = rpc_params!(params);
-        let parsed_response = self.runtime.block_on(async {
+        self.runtime.block_on(async {
             self.external_resolver.request("resolve_foreign_call", encoded_params).await
-        })?;
+        })
+    }
+}
 
-        Ok(parsed_response)
+fn build_http_client(resolver_url: &str) -> HttpClient {
+    let mut client_builder = HttpClientBuilder::new();
+
+    if let Some(Ok(timeout)) =
+        std::env::var("NARGO_FOREIGN_CALL_TIMEOUT").ok().map(|timeout| timeout.parse())
+    {
+        let timeout_duration = std::time::Duration::from_millis(timeout);
+        client_builder = client_builder.request_timeout(timeout_duration);
+    };
+
+    client_builder.build(resolver_url).expect("Invalid oracle resolver URL")
+}
+
+impl<F> ForeignCallExecutor<F> for RPCForeignCallExecutor
+where
+    F: AcirField + Serialize + for<'a> Deserialize<'a>,
+{
+    /// Execute an async call blocking the current thread.
+    /// This method cannot be called from inside a `tokio` runtime, for that to work
+    /// we need to offload the execution into a different thread; see the tests.
+    fn execute(&mut self, foreign_call: &ForeignCallWaitInfo<F>) -> ResolveForeignCallResult<F> {
+        let result = self.send_foreign_call(foreign_call);
+
+        match result {
+            Ok(parsed_response) => Ok(parsed_response),
+            Err(jsonrpsee::core::ClientError::Transport(err)) => {
+                println!("We got a transport error: {err:?}");
+                println!("Restarting http client...");
+                self.external_resolver = build_http_client(&self.resolver_url);
+                let parsed_response = self.send_foreign_call(foreign_call)?;
+                Ok(parsed_response)
+            }
+            Err(other) => Err(ForeignCallError::from(other)),
+        }
     }
 }
 
