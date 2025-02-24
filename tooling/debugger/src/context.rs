@@ -13,7 +13,7 @@ use acvm::{BlackBoxFunctionSolver, FieldElement};
 use bn254_blackbox_solver::Bn254BlackBoxSolver;
 use codespan_reporting::files::{Files, SimpleFile};
 use fm::FileId;
-use nargo::errors::{map_execution_error, ExecutionError, Location};
+use nargo::errors::{execution_error_from, ExecutionError, Location};
 use nargo::NargoError;
 use noirc_artifacts::debug::{DebugArtifact, StackFrame};
 use noirc_driver::DebugFile;
@@ -188,6 +188,15 @@ impl std::fmt::Display for DebugLocation {
             OpcodeLocation::Brillig { acir_index, brillig_index } => {
                 write!(f, "{circuit_id}:{acir_index}.{brillig_index}")
             }
+        }
+    }
+}
+
+impl Into<ResolvedOpcodeLocation> for DebugLocation {
+    fn into(self) -> ResolvedOpcodeLocation {
+        ResolvedOpcodeLocation {
+            acir_function_index: usize::try_from(self.circuit_id).unwrap(),
+            opcode_location: self.opcode_location,
         }
     }
 }
@@ -751,21 +760,11 @@ impl<'a, B: BlackBoxFunctionSolver<FieldElement>> DebugContext<'a, B> {
                 self.handle_foreign_call(foreign_call)
             }
             Err(err) => {
-                let resolved_call_stack: Vec<ResolvedOpcodeLocation> = self
-                    .get_call_stack()
-                    .iter()
-                    .map(|debug_loc| {
-                        ResolvedOpcodeLocation {
-                            acir_function_index: usize::try_from(debug_loc.circuit_id).unwrap(), // FIXME: is this ok? why circuit_id is u32?
-                            opcode_location: debug_loc.opcode_location,
-                        }
-                    })
-                    .collect();
-
-                DebugCommandResult::Error(NargoError::ExecutionError(map_execution_error(
+                let error = execution_error_from(
                     err,
-                    &resolved_call_stack,
-                )))
+                    &self.get_call_stack().into_iter().map(|op| op.into()).collect(),
+                );
+                DebugCommandResult::Error(NargoError::ExecutionError(error))
             }
         }
     }
