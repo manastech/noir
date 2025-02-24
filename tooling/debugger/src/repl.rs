@@ -112,7 +112,11 @@ impl<'a> ReplDebugger<'a> {
                     panic!("Unwanted result")
                 };
 
-                print_source_code_location(self.debug_artifact, &locations, self.raw_source_printing);
+                print_source_code_location(
+                    self.debug_artifact,
+                    &locations,
+                    self.raw_source_printing,
+                );
             }
         }
     }
