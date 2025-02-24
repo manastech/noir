@@ -490,7 +490,7 @@ impl<'a, B: BlackBoxFunctionSolver<FieldElement>> DebugContext<'a, B> {
             circuits,
             unconstrained_functions,
             acir_opcode_addresses,
-            initial_witness: initial_witness.clone(), // keeping it to be able to restart
+            initial_witness: initial_witness.clone(), // keeping it to be able to restart the context by itself
             acvm: initialize_acvm(
                 &blackbox_solver,
                 circuits,
@@ -1085,24 +1085,12 @@ impl<'a, B: BlackBoxFunctionSolver<FieldElement>> DebugContext<'a, B> {
     }
 
     fn restart(&mut self) {
-        // let breakpoints: Vec<DebugLocation> = self.iterate_breakpoints().copied().collect();
-        // let foreign_call_executor = Box::new(DefaultDebugForeignCallExecutor::from_artifact(
-        //     PrintOutput::Stdout,
-        //     self.context.get_foreign_call_resolver_url(),
-        //     self.debug_artifact,
-        // ));
-        // self.context = DebugContext::new(
-        //     self.blackbox_solver,
-        //     self.circuits,
-        //     self.debug_artifact,
-        //     self.initial_witness.clone(),
-        //     foreign_call_executor,
-        //     self.unconstrained_functions,
-        // );
-        // for debug_location in breakpoints {
-        //     self.context.add_breakpoint(debug_location);
-        // }
+        // restart everything that's progress related
+        // by assigning the initial values
         self.current_circuit_id = 0;
+        self.brillig_solver = None;
+        self.witness_stack = WitnessStack::default();
+        self.acvm_stack = vec![];
         self.foreign_call_executor.restart(&self.debug_artifact);
         self.acvm = initialize_acvm(
             self.backend,
