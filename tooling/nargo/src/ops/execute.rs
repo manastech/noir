@@ -8,7 +8,7 @@ use acvm::{AcirField, BlackBoxFunctionSolver};
 use acvm::{acir::circuit::Circuit, acir::native_types::WitnessMap};
 
 use crate::NargoError;
-use crate::errors::{map_execution_error, ExecutionError};
+use crate::errors::{execution_error_from, ExecutionError};
 use crate::foreign_calls::ForeignCallExecutor;
 
 struct ProgramExecutor<'a, F: AcirField, B: BlackBoxFunctionSolver<F>, E: ForeignCallExecutor<F>> {
@@ -117,7 +117,7 @@ impl<'a, F: AcirField, B: BlackBoxFunctionSolver<F>, E: ForeignCallExecutor<F>>
                         _ => (),
                     };
 
-                    return Err(NargoError::ExecutionError(map_execution_error(
+                    return Err(NargoError::ExecutionError(execution_error_from(
                         error,
                         &self.call_stack,
                     )));

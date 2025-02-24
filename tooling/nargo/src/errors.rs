@@ -243,35 +243,31 @@ pub fn try_to_diagnose_runtime_error(
     Some(error.with_call_stack(source_locations))
 }
 
-pub fn map_execution_error<F: AcirField>(
+pub fn execution_error_from<F: AcirField>(
     error: OpcodeResolutionError<F>,
     call_stack: &Vec<ResolvedOpcodeLocation>,
 ) -> ExecutionError<F> {
-    let call_stack = match &error {
-        OpcodeResolutionError::UnsatisfiedConstrain { .. }
-        | OpcodeResolutionError::IndexOutOfBounds { .. }
-        | OpcodeResolutionError::InvalidInputBitSize { .. }
-        | OpcodeResolutionError::BrilligFunctionFailed { .. } => Some(call_stack.clone()),
-        _ => None,
-    };
-
-    let assertion_payload: Option<ResolvedAssertionPayload<F>> = match &error {
-        OpcodeResolutionError::BrilligFunctionFailed { payload, .. }
-        | OpcodeResolutionError::UnsatisfiedConstrain { payload, .. } => payload.clone(),
-        _ => None,
-    };
-
-    let brillig_function_id = match &error {
-        OpcodeResolutionError::BrilligFunctionFailed { function_id, .. } => Some(*function_id),
-        _ => None,
+    let (assertion_payload, brillig_function_id) = match &error {
+        OpcodeResolutionError::BrilligFunctionFailed { payload, function_id, .. } => {
+            (payload.clone(), Some(*function_id))
+        }
+        OpcodeResolutionError::UnsatisfiedConstrain { payload, .. } => (payload.clone(), None),
+        _ => (None, None),
     };
 
     return match assertion_payload {
-        Some(payload) => ExecutionError::AssertionFailed(
-            payload,
-            call_stack.expect("Should have call stack for an assertion failure"),
-            brillig_function_id,
-        ),
-        None => ExecutionError::SolvingError(error, call_stack),
+        Some(payload) => {
+            ExecutionError::AssertionFailed(payload, call_stack.clone(), brillig_function_id)
+        }
+        None => {
+            let call_stack = match &error {
+                OpcodeResolutionError::UnsatisfiedConstrain { .. }
+                | OpcodeResolutionError::IndexOutOfBounds { .. }
+                | OpcodeResolutionError::InvalidInputBitSize { .. }
+                | OpcodeResolutionError::BrilligFunctionFailed { .. } => Some(call_stack.clone()),
+                _ => None,
+            };
+            ExecutionError::SolvingError(error, call_stack)
+        }
     };
 }

@@ -81,7 +81,7 @@ pub(crate) struct DebugCommand {
     oracle_resolver: Option<String>,
 }
 
-struct ExecutionParams<'a>{
+struct RunParams<'a> {
     prover_name: String,
     witness_name: Option<String>,
     target_dir: &'a Path,
@@ -112,7 +112,7 @@ pub(crate) fn run(args: DebugCommand, workspace: Workspace) -> Result<(), CliErr
     let acir_mode = args.acir_mode;
     let skip_instrumentation = args.skip_instrumentation.unwrap_or(acir_mode);
 
-    let execution_params = ExecutionParams {
+    let run_params = RunParams {
         prover_name: args.prover_name,
         witness_name: args.witness_name,
         target_dir: &workspace.target_directory_path(),
@@ -133,20 +133,10 @@ pub(crate) fn run(args: DebugCommand, workspace: Workspace) -> Result<(), CliErr
     let compile_options =
         compile_options_for_debugging(acir_mode, skip_instrumentation, args.compile_options);
 
-    let expression_width =
-        get_target_width(package.expression_width, compile_options.expression_width);
-
     if let Some(test_name) = args.test_name {
-        debug_test(
-            test_name,
-            package,
-            workspace,
-            compile_options,
-            execution_params,
-            expression_width,
-        )
+        debug_test(test_name, package, workspace, compile_options, run_params)
     } else {
-        debug_main(package, workspace, compile_options, execution_params, expression_width)
+        debug_main(package, workspace, compile_options, run_params)
     }
 }
 
@@ -240,13 +230,15 @@ fn debug_main(
     package: &Package,
     workspace: Workspace,
     compile_options: CompileOptions,
-    execution_params: ExecutionParams,
-    expression_width: ExpressionWidth,
+    run_params: RunParams,
 ) -> Result<(), CliError> {
+    let expression_width =
+        get_target_width(package.expression_width, compile_options.expression_width);
+
     let compiled_program =
         compile_bin_package_for_debugging(&workspace, package, &compile_options, expression_width)?;
 
-    run_async(package, compiled_program, &workspace, execution_params).map(|_| ())
+    run_async(package, compiled_program, &workspace, run_params).map(|_| ())
 }
 
 fn debug_test(
@@ -254,8 +246,7 @@ fn debug_test(
     package: &Package,
     workspace: Workspace,
     compile_options: CompileOptions,
-    execution_params: ExecutionParams,
-    expression_width: ExpressionWidth,
+    run_params: RunParams,
 ) -> Result<(), CliError> {
     let package_name = package.name.to_string();
     // let workspace_file_manager = build_workspace_file_manager(&workspace.root_dir, &workspace);
@@ -278,6 +269,8 @@ fn debug_test(
         Ok(compiled_program) => {
             // Run the backend to ensure the PWG evaluates functions like std::hash::pedersen,
             // otherwise constraints involving these expressions will not error.
+            let expression_width =
+                get_target_width(package.expression_width, compile_options.expression_width);
             let compiled_program =
                 nargo::ops::transform_program(compiled_program, expression_width);
 
@@ -285,7 +278,7 @@ fn debug_test(
             let debug = compiled_program.debug.clone();
 
             // Debug test
-            let debug_result = run_async(package, compiled_program, &workspace, execution_params);
+            let debug_result = run_async(package, compiled_program, &workspace, run_params);
 
             match debug_result {
                 Ok(result) => {
@@ -383,15 +376,14 @@ fn run_async(
     package: &Package,
     program: CompiledProgram,
     workspace: &Workspace,
-    execution_params: ExecutionParams,
+    run_params: RunParams,
 ) -> Result<DebugResult, CliError> {
     use tokio::runtime::Builder;
     let runtime = Builder::new_current_thread().enable_all().build().unwrap();
 
     runtime.block_on(async {
         println!("[{}] Starting debugger", package.name);
-        let debug_result =
-            debug_program_and_decode(program, package, workspace, &execution_params)?;
+        let debug_result = debug_program_and_decode(program, package, workspace, &run_params)?;
 
         match debug_result {
             Ok((return_value, witness_stack)) => {
@@ -402,11 +394,11 @@ fn run_async(
                     println!("[{}] Circuit output: {return_value:?}", package.name);
                 }
 
-                if let Some(witness_name) = execution_params.witness_name {
+                if let Some(witness_name) = run_params.witness_name {
                     let witness_path = match save_witness_to_dir(
                         &witness_stack,
                         &witness_name,
-                        &execution_params.target_dir,
+                        run_params.target_dir,
                     ) {
                         Ok(path) => path,
                         Err(err) => return Err(CliError::from(err)),
@@ -427,17 +419,16 @@ fn debug_program_and_decode(
     program: CompiledProgram,
     package: &Package,
     workspace: &Workspace,
-    execution_params: &ExecutionParams,
+    run_params: &RunParams,
 ) -> Result<ExecutionResult, CliError> {
     let program_abi = program.abi.clone();
-    let initial_witness =
-        parse_initial_witness(package, &execution_params.prover_name, &program.abi)?;
+    let initial_witness = parse_initial_witness(package, &run_params.prover_name, &program.abi)?;
     let debug_result = debug_program(
         program,
         initial_witness,
-        execution_params.pedantic_solving,
-        execution_params.raw_source_printing,
-        execution_params.oracle_resolver_url.clone(),
+        run_params.pedantic_solving,
+        run_params.raw_source_printing,
+        run_params.oracle_resolver_url.clone(),
         Some(workspace.root_dir.clone()),
         package.name.to_string(),
     );
