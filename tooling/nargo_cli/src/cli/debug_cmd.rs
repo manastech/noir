@@ -311,9 +311,10 @@ fn debug_test(
 
     let (mut context, crate_id) =
         prepare_package_for_debug(&file_manager, &mut parsed_files, package, &workspace);
-    let test = get_test_function(crate_id, &context, &test_name)?;
-
+    
     check_crate_and_report_errors(&mut context, crate_id, &compile_options)?;
+
+    let test= get_test_function(crate_id, &context, &test_name)?;
 
     let test_result =
         debug_test_fn(&test, &mut context, &workspace, package, compile_options, run_params);
