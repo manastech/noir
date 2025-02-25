@@ -1,7 +1,8 @@
 use crate::context::{
-    start_debugger, DebugCommandAPI, DebugCommandAPIResult, DebugCommandResult, DebugLocation,
+    DebugCommandResult, DebugLocation,
     DebugStackFrame,
 };
+use crate::debug::{start_debugger, DebugCommandAPI, DebugCommandAPIResult};
 
 use acvm::acir::brillig::BitSize;
 use acvm::acir::circuit::brillig::{BrilligBytecode, BrilligFunctionId};
