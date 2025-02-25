@@ -146,6 +146,69 @@ pub(crate) fn compile_options_for_debugging(
         ..compile_options
     }
 }
+
+fn print_test_result(test_result: TestResult, file_manager: &FileManager) -> () {
+    let formatter: Box<dyn Formatter> = Box::new(PrettyFormatter);
+    formatter
+        .test_end_sync(&test_result, 1, 1, file_manager, true, false, false)
+        .expect("Could not display test result");
+}
+
+fn debug_test_fn(
+    test: &TestDefinition,
+    context: &mut Context,
+    workspace: &Workspace,
+    package: &Package,
+    compile_options: CompileOptions,
+    run_params: RunParams,
+) -> TestResult {
+    let compiled_program = compile_test_fn_for_debugging(&test, context, package, compile_options);
+
+    let test_status = match compiled_program {
+        Ok(compiled_program) => {
+            let abi = compiled_program.abi.clone();
+            let debug = compiled_program.debug.clone();
+
+            // Run debugger
+            let debug_result = run_async(package, compiled_program, workspace, run_params);
+
+            match debug_result {
+                Ok(result) => {
+                    test_status_program_compile_pass(&test.function, &abi, &debug, &result)
+                }
+                // Debugger failed
+                Err(error) => TestStatus::Fail {
+                    message: format!("Debugger failed: {:?}", error),
+                    error_diagnostic: None,
+                },
+            }
+        }
+        Err(err) => test_status_program_compile_fail(err, &test.function),
+    };
+
+    TestResult::new(
+        test.name.clone(),
+        package.name.to_string(),
+        test_status,
+        String::new(),
+        Duration::from_secs(1), // FIXME: hardcoded value
+    )
+}
+
+fn compile_test_fn_for_debugging(
+    test_def: &TestDefinition,
+    context: &mut Context,
+    package: &Package,
+    compile_options: CompileOptions,
+) -> Result<CompiledProgram, noirc_driver::CompileError> {
+    let compiled_program =
+        compile_no_check(context, &compile_options, test_def.function.get_id(), None, false)?;
+    let expression_width =
+        get_target_width(package.expression_width, compile_options.expression_width);
+    let compiled_program = nargo::ops::transform_program(compiled_program, expression_width);
+    Ok(compiled_program)
+}
+
 pub(crate) fn compile_bin_package_for_debugging(
     workspace: &Workspace,
     package: &Package,
@@ -242,65 +305,24 @@ fn debug_test(
     compile_options: CompileOptions,
     run_params: RunParams,
 ) -> Result<(), CliError> {
-    let package_name = package.name.to_string();
-    // let workspace_file_manager = build_workspace_file_manager(&workspace.root_dir, &workspace);
-    // TODO: extract fileManager creation + insert files into single function build_workspace_file_manager
-    let mut workspace_file_manager = file_manager_with_stdlib(std::path::Path::new(""));
-    insert_all_files_for_workspace_into_file_manager(&workspace, &mut workspace_file_manager);
+    let (file_manager, mut parsed_files) = load_workspace_files(&workspace);
 
-    let mut parsed_files = parse_all(&workspace_file_manager);
     let (mut context, crate_id) =
-        prepare_package_for_debug(&workspace_file_manager, &mut parsed_files, package, &workspace);
+        prepare_package_for_debug(&file_manager, &mut parsed_files, package, &workspace);
+    let test = get_test_function(crate_id, &context, &test_name)?;
 
     check_crate_and_report_errors(&mut context, crate_id, &compile_options)?;
-    let (test_name, test_function) = get_test_function(crate_id, &context, &test_name)?;
 
-    // TODO: see if we can replace with compile_bin_for_debugging
-    let compiled_program =
-        compile_no_check(&mut context, &compile_options, test_function.get_id(), None, false);
-
-    let test_status = match compiled_program {
-        Ok(compiled_program) => {
-            // Run the backend to ensure the PWG evaluates functions like std::hash::pedersen,
-            // otherwise constraints involving these expressions will not error.
-            let expression_width =
-                get_target_width(package.expression_width, compile_options.expression_width);
-            let compiled_program =
-                nargo::ops::transform_program(compiled_program, expression_width);
-
-            let abi = compiled_program.abi.clone();
-            let debug = compiled_program.debug.clone();
-
-            // Debug test
-            let debug_result = run_async(package, compiled_program, &workspace, run_params);
-
-            match debug_result {
-                Ok(result) => {
-                    test_status_program_compile_pass(&test_function, &abi, &debug, &result)
-                }
-                // Debugger failed
-                Err(error) => TestStatus::Fail {
-                    message: format!("Debugger failed: {:?}", error),
-                    error_diagnostic: None,
-                },
-            }
-        }
-        Err(err) => test_status_program_compile_fail(err, &test_function),
-    };
-    let test_result = TestResult::new(
-        test_name,
-        package_name,
-        test_status,
-        String::new(),
-        Duration::from_secs(1), // FIXME: hardcoded value
-    );
-
-    let formatter: Box<dyn Formatter> = Box::new(PrettyFormatter);
-    formatter
-        .test_end_sync(&test_result, 1, 1, &workspace_file_manager, true, false, false)
-        .expect("Could not display test result");
+    let test_result =
+        debug_test_fn(&test, &mut context, &workspace, package, compile_options, run_params);
+    print_test_result(test_result, &file_manager);
 
     Ok(())
+}
+
+struct TestDefinition {
+    name: String,
+    function: TestFunction,
 }
 
 // TODO: move to nargo::ops and reuse in test_cmd?
@@ -308,7 +330,7 @@ fn get_test_function(
     crate_id: CrateId,
     context: &Context,
     test_name: &str,
-) -> Result<(String, TestFunction), CliError> {
+) -> Result<TestDefinition, CliError> {
     // TODO: review Contains signature and check if its ok to send test_name as single element
     let test_pattern = FunctionNameMatch::Contains(vec![test_name.into()]);
 
@@ -343,9 +365,16 @@ fn get_test_function(
     if test_function_has_arguments {
         return Err(CliError::Generic(String::from("Cannot debug tests with arguments")));
     }
-    Ok((test_name, test_function))
+    Ok(TestDefinition { name: test_name, function: test_function })
 }
 
+fn load_workspace_files(workspace: &Workspace) -> (FileManager, ParsedFiles) {
+    let mut file_manager = file_manager_with_stdlib(std::path::Path::new(""));
+    insert_all_files_for_workspace_into_file_manager(&workspace, &mut file_manager);
+
+    let parsed_files = parse_all(&file_manager);
+    (file_manager, parsed_files)
+}
 pub(crate) fn prepare_package_for_debug<'a>(
     file_manager: &'a FileManager,
     parsed_files: &'a mut ParsedFiles,
