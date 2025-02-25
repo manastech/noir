@@ -29,11 +29,12 @@ pub(super) enum DebugCommandAPIResult {
     Bool(bool),
     WitnessMap(WitnessMap<FieldElement>),
     MemoryValue(Option<Vec<MemoryValue<FieldElement>>>),
-    Unit,
+    Unit(()),
     Variables(Vec<DebugStackFrame<FieldElement>>),
     WitnessStack(WitnessStack<FieldElement>),
     Field(Option<FieldElement>),
 }
+
 
 #[derive(Debug)]
 pub(super) enum DebugCommandAPI {
@@ -121,7 +122,7 @@ pub(super) fn start_debugger<'a>(
                 }
                 DebugCommandAPI::Restart => {
                     context.restart();
-                    DebugCommandAPIResult::Unit
+                    DebugCommandAPIResult::Unit(())
                 }
                 DebugCommandAPI::GetWitnessMap => {
                     DebugCommandAPIResult::WitnessMap(context.get_witness_map().clone())
@@ -134,7 +135,7 @@ pub(super) fn start_debugger<'a>(
                 ),
                 DebugCommandAPI::WriteBrilligMemory(ptr, value, bit_size) => {
                     context.write_brillig_memory(ptr, value, bit_size);
-                    DebugCommandAPIResult::Unit
+                    DebugCommandAPIResult::Unit(())
                 }
                 DebugCommandAPI::OverwriteWitness(witness, value) => {
                     DebugCommandAPIResult::Field(context.overwrite_witness(witness, value))
