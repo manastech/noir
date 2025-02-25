@@ -44,6 +44,15 @@ pub struct ReplDebugger<'a> {
     raw_source_printing: bool,
 }
 
+macro_rules! extract {
+    ($e:expr, $p:path) => {
+        match $e {
+            $p(value) => Some(value),
+            _ => None,
+        }
+    };
+}
+
 impl<'a> ReplDebugger<'a> {
     pub fn new(
         circuits: &'a [Circuit<FieldElement>],
@@ -120,32 +129,28 @@ impl<'a> ReplDebugger<'a> {
     }
 
     fn send_execution_control_command(&self, command: DebugCommandAPI) -> DebugCommandResult {
-        let result = self.call_debugger(command);
-        let DebugCommandAPIResult::DebugCommandResult(command_result) = result else {
-            panic!("Unwanted result")
-        };
-        command_result
+        extract!(self.call_debugger(command), DebugCommandAPIResult::DebugCommandResult).unwrap()
     }
 
     // TODO: find a better name
     fn send_bool_command(&self, command: DebugCommandAPI) -> bool {
-        let result = self.call_debugger(command);
-        let DebugCommandAPIResult::Bool(status) = result else { panic!("Unwanted result") };
-        status
+        extract!(self.call_debugger(command), DebugCommandAPIResult::Bool).unwrap()
     }
 
     fn get_opcodes_of_circuit(&self, circuit_id: u32) -> Vec<Opcode<FieldElement>> {
-        let result = self.call_debugger(DebugCommandAPI::GetOpcodesOfCircuit(circuit_id));
-        let DebugCommandAPIResult::Opcodes(opcodes) = result else { panic!("Unwanted result") };
-        opcodes
+        extract!(
+            self.call_debugger(DebugCommandAPI::GetOpcodesOfCircuit(circuit_id)),
+            DebugCommandAPIResult::Opcodes
+        )
+        .unwrap()
     }
 
     fn get_current_debug_location(&self) -> Option<DebugLocation> {
-        let result = self.call_debugger(DebugCommandAPI::GetCurrentDebugLocation);
-        let DebugCommandAPIResult::DebugLocation(location) = result else {
-            panic!("Unwanted result")
-        };
-        location
+        extract!(
+            self.call_debugger(DebugCommandAPI::GetCurrentDebugLocation),
+            DebugCommandAPIResult::DebugLocation
+        )
+        .unwrap()
     }
 
     fn is_breakpoint_set(&self, debug_location: DebugLocation) -> bool {
@@ -168,20 +173,26 @@ impl<'a> ReplDebugger<'a> {
         self.send_bool_command(DebugCommandAPI::IsExecutingBrillig)
     }
     fn get_brillig_memory(&self) -> Option<Vec<MemoryValue<FieldElement>>> {
-        let result = self.call_debugger(DebugCommandAPI::GetBrilligMemory);
-        let DebugCommandAPIResult::MemoryValue(mem) = result else { panic!("Unwanted result") };
-        mem
+        extract!(
+            self.call_debugger(DebugCommandAPI::GetBrilligMemory),
+            DebugCommandAPIResult::MemoryValue
+        )
+        .unwrap()
     }
     fn get_variables(&self) -> Vec<DebugStackFrame<FieldElement>> {
-        let result = self.call_debugger(DebugCommandAPI::GetVariables);
-        let DebugCommandAPIResult::Variables(vars) = result else { panic!("Unwanted result") };
-        vars
+        extract!(
+            self.call_debugger(DebugCommandAPI::GetVariables),
+            DebugCommandAPIResult::Variables
+        )
+        .unwrap()
     }
 
     fn overwrite_witness(&self, witness: Witness, value: FieldElement) -> Option<FieldElement> {
-        let result = self.call_debugger(DebugCommandAPI::OverwriteWitness(witness, value));
-        let DebugCommandAPIResult::Field(field) = result else { panic!("Unwanted result") };
-        field
+        extract!(
+            self.call_debugger(DebugCommandAPI::OverwriteWitness(witness, value)),
+            DebugCommandAPIResult::Field
+        )
+        .unwrap()
     }
 
     fn is_solved(&self) -> bool {
@@ -189,33 +200,33 @@ impl<'a> ReplDebugger<'a> {
     }
 
     fn restart_debugger(&self) {
-        let result = self.call_debugger(DebugCommandAPI::Restart);
-        let DebugCommandAPIResult::Unit = result else { panic!("Unwanted result") };
+        extract!(self.call_debugger(DebugCommandAPI::Restart), DebugCommandAPIResult::Unit).unwrap()
     }
 
     fn get_witness_map(&self) -> WitnessMap<FieldElement> {
-        let result = self.call_debugger(DebugCommandAPI::GetWitnessMap);
-        let DebugCommandAPIResult::WitnessMap(witness_map) = result else {
-            panic!("Unwanted result")
-        };
-        witness_map
+        extract!(
+            self.call_debugger(DebugCommandAPI::GetWitnessMap),
+            DebugCommandAPIResult::WitnessMap
+        )
+        .unwrap()
     }
     fn find_opcode_at_current_file_line(&self, line_number: i64) -> Option<DebugLocation> {
-        let result = self.call_debugger(DebugCommandAPI::FindOpcodeAtCurrentFileLine(line_number));
-        let DebugCommandAPIResult::DebugLocation(location) = result else {
-            panic!("Unwanted result")
-        };
-        location
+        extract!(
+            self.call_debugger(DebugCommandAPI::FindOpcodeAtCurrentFileLine(line_number)),
+            DebugCommandAPIResult::DebugLocation
+        )
+        .unwrap()
     }
     fn finalize(self) -> WitnessStack<FieldElement> {
-        let result = self.call_debugger(DebugCommandAPI::Finalize);
-        let DebugCommandAPIResult::WitnessStack(stack) = result else { panic!("Unwanted result") };
-        stack
+        extract!(self.call_debugger(DebugCommandAPI::Finalize), DebugCommandAPIResult::WitnessStack)
+            .unwrap()
     }
-
     fn show_stack_frame(&self, index: usize, debug_location: &DebugLocation) {
-        let result = self.call_debugger(DebugCommandAPI::GetOpcodes);
-        let DebugCommandAPIResult::Opcodes(opcodes) = result else { panic!("Unwanted result") };
+        let opcodes = extract!(
+            self.call_debugger(DebugCommandAPI::GetOpcodes),
+            DebugCommandAPIResult::Opcodes
+        )
+        .unwrap();
         match &debug_location.opcode_location {
             OpcodeLocation::Acir(instruction_pointer) => {
                 println!(
@@ -237,19 +248,22 @@ impl<'a> ReplDebugger<'a> {
             }
         }
         // todo: should we clone the debug_location so it can be sent?
-        let result =
-            self.call_debugger(DebugCommandAPI::GetSourceLocationForDebugLocation(*debug_location));
-        let DebugCommandAPIResult::Locations(locations) = result else { panic!("Unwanted result") };
+        let locations = extract!(
+            self.call_debugger(DebugCommandAPI::GetSourceLocationForDebugLocation(*debug_location)),
+            DebugCommandAPIResult::Locations
+        )
+        .unwrap();
 
         print_source_code_location(self.debug_artifact, &locations, self.raw_source_printing);
     }
 
     pub fn show_current_call_stack(&self) {
         // let call_stack = self.context.get_ca
-        let result = self.call_debugger(DebugCommandAPI::GetCallStack);
-        let DebugCommandAPIResult::DebugLocations(call_stack) = result else {
-            panic!("Unwanted result")
-        };
+        let call_stack = extract!(
+            self.call_debugger(DebugCommandAPI::GetCallStack),
+            DebugCommandAPIResult::DebugLocations
+        )
+        .unwrap();
 
         if call_stack.is_empty() {
             println!("Finished execution. Call stack empty.");
@@ -518,9 +532,11 @@ impl<'a> ReplDebugger<'a> {
             println!("Not executing a Brillig block");
             return;
         }
-        let result =
-            self.call_debugger(DebugCommandAPI::WriteBrilligMemory(index, field_value, bit_size));
-        let DebugCommandAPIResult::Unit = result else { panic!("Unwanted result") };
+        extract!(
+            self.call_debugger(DebugCommandAPI::WriteBrilligMemory(index, field_value, bit_size)),
+            DebugCommandAPIResult::Unit
+        )
+        .unwrap();
     }
 
     pub fn show_vars(&self) {
