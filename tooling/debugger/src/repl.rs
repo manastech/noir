@@ -1,7 +1,8 @@
 use crate::context::{
-    start_debugger, DebugCommandAPI, DebugCommandAPIResult, DebugCommandResult, DebugLocation,
+    DebugCommandResult, DebugLocation,
     DebugStackFrame,
 };
+use crate::debug::{start_debugger, DebugCommandAPI, DebugCommandAPIResult};
 
 use acvm::AcirField;
 use acvm::acir::brillig::BitSize;
