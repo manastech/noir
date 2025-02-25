@@ -1,7 +1,4 @@
-use crate::context::{
-    DebugCommandResult, DebugLocation,
-    DebugStackFrame,
-};
+use crate::context::{DebugCommandResult, DebugLocation, DebugStackFrame};
 use crate::debug::{start_debugger, DebugCommandAPI, DebugCommandAPIResult};
 
 use acvm::AcirField;

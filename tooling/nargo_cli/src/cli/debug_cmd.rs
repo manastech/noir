@@ -176,11 +176,15 @@ fn debug_test_fn(
 
             match debug_result {
                 Ok(result) => {
-                    test_status_program_compile_pass(&test.function, &abi, &debug, &result)
+                    test_status_program_compile_pass(&test.function, &abi, &debug, &Ok(result))
                 }
-                // Debugger failed
+                // Test execution failed
+                Err(CliError::NargoError(error)) => {
+                    test_status_program_compile_pass(&test.function, &abi, &debug, &Err(error))
+                }
+                // Other errors
                 Err(error) => TestStatus::Fail {
-                    message: format!("Debugger failed: {:?}", error),
+                    message: format!("Debugger failed: {error}"),
                     error_diagnostic: None,
                 },
             }
@@ -311,10 +315,10 @@ fn debug_test(
 
     let (mut context, crate_id) =
         prepare_package_for_debug(&file_manager, &mut parsed_files, package, &workspace);
-    
+
     check_crate_and_report_errors(&mut context, crate_id, &compile_options)?;
 
-    let test= get_test_function(crate_id, &context, &test_name)?;
+    let test = get_test_function(crate_id, &context, &test_name)?;
 
     let test_result =
         debug_test_fn(&test, &mut context, &workspace, package, compile_options, run_params);
@@ -394,16 +398,15 @@ pub(crate) fn prepare_package_for_debug<'a>(
     (context, crate_id)
 }
 
-type DebugResult = Result<WitnessStack<FieldElement>, NargoError<FieldElement>>;
-// FIXME: You shouldn't need this. CliError already has a variant which transparently can carry a NargoError.
-type ExecutionResult =
-    Result<(Option<InputValue>, WitnessStack<FieldElement>), NargoError<FieldElement>>;
+// FIXME: find a better name
+type ExecutionResult = (Option<InputValue>, WitnessStack<FieldElement>);
+
 fn run_async(
     package: &Package,
     program: CompiledProgram,
     workspace: &Workspace,
     run_params: RunParams,
-) -> Result<DebugResult, CliError> {
+) -> Result<WitnessStack<FieldElement>, CliError> {
     use tokio::runtime::Builder;
     let runtime = Builder::new_current_thread().enable_all().build().unwrap();
 
@@ -412,7 +415,7 @@ fn run_async(
         let debug_result = debug_program_and_decode(program, package, workspace, &run_params)?;
 
         match debug_result {
-            Ok((return_value, witness_stack)) => {
+            (return_value, witness_stack) => {
                 let witness_stack_result = witness_stack.clone();
                 println!("[{}] Circuit witness successfully solved", package.name);
 
@@ -421,26 +424,16 @@ fn run_async(
                 }
 
                 if let Some(witness_name) = run_params.witness_name {
-                    let witness_path = match save_witness_to_dir(
-                        &witness_stack,
-                        &witness_name,
-                        run_params.target_dir,
-                    ) {
-                        Ok(path) => path,
-                        Err(err) => return Err(CliError::from(err)),
-                    };
-
+                    let witness_path =
+                        save_witness_to_dir(&witness_stack, &witness_name, run_params.target_dir)?;
                     println!("[{}] Witness saved to {}", package.name, witness_path.display());
                 }
-                Ok(Ok(witness_stack_result))
+                Ok(witness_stack_result)
             }
-            Err(error) => Ok(Err(error)),
         }
     })
 }
 
-// FIXME: We have nested results to differentiate between the execution result (the inner one - Nargo)
-// and setting up the debugger errors (outer one - CliErrors)
 fn debug_program_and_decode(
     program: CompiledProgram,
     package: &Package,
@@ -449,7 +442,7 @@ fn debug_program_and_decode(
 ) -> Result<ExecutionResult, CliError> {
     let program_abi = program.abi.clone();
     let initial_witness = parse_initial_witness(package, &run_params.prover_name, &program.abi)?;
-    let debug_result = debug_program(
+    let witness_stack = debug_program(
         program,
         initial_witness,
         run_params.pedantic_solving,
@@ -457,20 +450,17 @@ fn debug_program_and_decode(
         run_params.oracle_resolver_url.clone(),
         Some(workspace.root_dir.clone()),
         package.name.to_string(),
-    );
-    match debug_result {
-        Ok(witness_stack) => match witness_stack {
-            Some(witness_stack) => {
-                let main_witness = &witness_stack
-                    .peek()
-                    .expect("Should have at least one witness on the stack")
-                    .witness;
-                let (_, return_value) = program_abi.decode(main_witness)?;
-                Ok(Ok((return_value, witness_stack)))
-            }
-            None => Err(CliError::ExecutionHalted),
-        },
-        Err(error) => Ok(Err(error)),
+    )?;
+    match witness_stack {
+        Some(witness_stack) => {
+            let main_witness = &witness_stack
+                .peek()
+                .expect("Should have at least one witness on the stack")
+                .witness;
+            let (_, return_value) = program_abi.decode(main_witness)?;
+            Ok((return_value, witness_stack))
+        }
+        None => Err(CliError::ExecutionHalted),
     }
 }
 
