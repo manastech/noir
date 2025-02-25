@@ -357,9 +357,7 @@ impl<'a> ReplDebugger<'a> {
     }
 
     fn add_breakpoint_at_line(&mut self, line_number: i64) {
-
-        let best_location =
-            self.find_opcode_at_current_file_line(line_number);
+        let best_location = self.find_opcode_at_current_file_line(line_number);
 
         match best_location {
             Some(location) => {
