@@ -19,8 +19,8 @@ pub struct RPCForeignCallExecutor {
     id: u64,
     /// JSON RPC client to resolve foreign calls
     external_resolver: HttpClient,
-
-    resolver_url: String,
+    /// External resolver target. We are keeping it to be able to restart httpClient if necessary
+    target_url: String,
     /// Root path to the program or workspace in execution.
     root_path: Option<PathBuf>,
     /// Name of the package in execution
@@ -73,7 +73,7 @@ impl RPCForeignCallExecutor {
 
         RPCForeignCallExecutor {
             external_resolver: oracle_resolver,
-            resolver_url: resolver_url.to_string(),
+            target_url: resolver_url.to_string(),
             id,
             root_path,
             package_name,
@@ -105,7 +105,7 @@ impl RPCForeignCallExecutor {
     }
 }
 
-fn build_http_client(resolver_url: &str) -> HttpClient {
+fn build_http_client(target: &str) -> HttpClient {
     let mut client_builder = HttpClientBuilder::new();
 
     if let Some(Ok(timeout)) =
@@ -115,7 +115,7 @@ fn build_http_client(resolver_url: &str) -> HttpClient {
         client_builder = client_builder.request_timeout(timeout_duration);
     };
 
-    client_builder.build(resolver_url).expect("Invalid oracle resolver URL")
+    client_builder.build(target).expect("Invalid oracle resolver URL")
 }
 
 impl<F> ForeignCallExecutor<F> for RPCForeignCallExecutor
@@ -130,10 +130,13 @@ where
 
         match result {
             Ok(parsed_response) => Ok(parsed_response),
+            // TODO: This is a workaround
+            // The client is losing connection with the server and it's not being able to manage it
+            // so we are re-creating the HttpClient when it happens
             Err(jsonrpsee::core::ClientError::Transport(err)) => {
                 println!("We got a transport error: {err:?}");
                 println!("Restarting http client...");
-                self.external_resolver = build_http_client(&self.resolver_url);
+                self.external_resolver = build_http_client(&self.target_url);
                 let parsed_response = self.send_foreign_call(foreign_call)?;
                 Ok(parsed_response)
             }

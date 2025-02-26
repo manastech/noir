@@ -221,11 +221,7 @@ pub(crate) fn compile_bin_package_for_debugging(
     compile_options: &CompileOptions,
     expression_width: ExpressionWidth,
 ) -> Result<CompiledProgram, CompileError> {
-    // TODO: extract fileManager creation + insert files into single function build_workspace_file_manager
-    let mut workspace_file_manager: FileManager = file_manager_with_stdlib(Path::new(""));
-    insert_all_files_for_workspace_into_file_manager(workspace, &mut workspace_file_manager);
-
-    let mut parsed_files = parse_all(&workspace_file_manager);
+    let (workspace_file_manager, mut parsed_files) = load_workspace_files(workspace);
 
     let compilation_result = if compile_options.instrument_debug {
         let debug_state =
@@ -412,25 +408,22 @@ fn run_async(
 
     runtime.block_on(async {
         println!("[{}] Starting debugger", package.name);
-        let debug_result = debug_program_and_decode(program, package, workspace, &run_params)?;
+        let (return_value, witness_stack) =
+            debug_program_and_decode(program, package, workspace, &run_params)?;
 
-        match debug_result {
-            (return_value, witness_stack) => {
-                let witness_stack_result = witness_stack.clone();
-                println!("[{}] Circuit witness successfully solved", package.name);
+        let witness_stack_result = witness_stack.clone();
+        println!("[{}] Circuit witness successfully solved", package.name);
 
-                if let Some(return_value) = return_value {
-                    println!("[{}] Circuit output: {return_value:?}", package.name);
-                }
-
-                if let Some(witness_name) = run_params.witness_name {
-                    let witness_path =
-                        save_witness_to_dir(&witness_stack, &witness_name, run_params.target_dir)?;
-                    println!("[{}] Witness saved to {}", package.name, witness_path.display());
-                }
-                Ok(witness_stack_result)
-            }
+        if let Some(return_value) = return_value {
+            println!("[{}] Circuit output: {return_value:?}", package.name);
         }
+
+        if let Some(witness_name) = run_params.witness_name {
+            let witness_path =
+                save_witness_to_dir(&witness_stack, &witness_name, run_params.target_dir)?;
+            println!("[{}] Witness saved to {}", package.name, witness_path.display());
+        }
+        Ok(witness_stack_result)
     })
 }
 

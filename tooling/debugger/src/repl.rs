@@ -25,12 +25,9 @@ use std::thread;
 use crate::source_code_printer::print_source_code_location;
 
 pub struct ReplDebugger<'a> {
-    // context: DebugContext<'a, B>,
     command_sender: Sender<DebugCommandAPI>,
     result_receiver: Receiver<DebugCommandAPIResult>,
-    // blackbox_solver: &'a B,
     debug_artifact: &'a DebugArtifact,
-    // initial_witness: WitnessMap<FieldElement>,
     last_result: DebugCommandResult,
 
     // ACIR functions to debug
@@ -44,7 +41,7 @@ pub struct ReplDebugger<'a> {
     raw_source_printing: bool,
 }
 
-macro_rules! extract {
+macro_rules! extract_value {
     ($e:expr, $p:path) => {
         match $e {
             $p(value) => Some(value),
@@ -75,15 +72,14 @@ impl<'a> ReplDebugger<'a> {
         }
     }
 
-    // FIXME: this probably reads better with match expression
     fn call_debugger(&self, command: DebugCommandAPI) -> DebugCommandAPIResult {
-        if let Ok(()) = self.command_sender.send(command) {
-            let Ok(result) = self.result_receiver.recv() else {
-                panic!("Debugger closed connection unexpectedly");
-            };
-            result
-        } else {
-            panic!("Could not communicate with debugger")
+        // using  match here instead of unwrap() to give more useful panic messages
+        match self.command_sender.send(command) {
+            Ok(_) => match self.result_receiver.recv() {
+                Ok(result) => result,
+                Err(_) => panic!("Debugger closed connection unexpectedly"),
+            },
+            Err(_) => panic!("Could not communicate with debugger"),
         }
     }
 
@@ -113,11 +109,7 @@ impl<'a> ReplDebugger<'a> {
                         );
                     }
                 }
-                let result = self
-                    .call_debugger(DebugCommandAPI::GetSourceLocationForDebugLocation(location));
-                let DebugCommandAPIResult::Locations(locations) = result else {
-                    panic!("Unwanted result")
-                };
+                let locations = extract_value!(self.call_debugger(DebugCommandAPI::GetSourceLocationForDebugLocation(location)), DebugCommandAPIResult::Locations).unwrap();
 
                 print_source_code_location(
                     self.debug_artifact,
@@ -129,16 +121,16 @@ impl<'a> ReplDebugger<'a> {
     }
 
     fn send_execution_control_command(&self, command: DebugCommandAPI) -> DebugCommandResult {
-        extract!(self.call_debugger(command), DebugCommandAPIResult::DebugCommandResult).unwrap()
+        extract_value!(self.call_debugger(command), DebugCommandAPIResult::DebugCommandResult).unwrap()
     }
 
     // TODO: find a better name
     fn send_bool_command(&self, command: DebugCommandAPI) -> bool {
-        extract!(self.call_debugger(command), DebugCommandAPIResult::Bool).unwrap()
+        extract_value!(self.call_debugger(command), DebugCommandAPIResult::Bool).unwrap()
     }
 
     fn get_opcodes_of_circuit(&self, circuit_id: u32) -> Vec<Opcode<FieldElement>> {
-        extract!(
+        extract_value!(
             self.call_debugger(DebugCommandAPI::GetOpcodesOfCircuit(circuit_id)),
             DebugCommandAPIResult::Opcodes
         )
@@ -146,7 +138,7 @@ impl<'a> ReplDebugger<'a> {
     }
 
     fn get_current_debug_location(&self) -> Option<DebugLocation> {
-        extract!(
+        extract_value!(
             self.call_debugger(DebugCommandAPI::GetCurrentDebugLocation),
             DebugCommandAPIResult::DebugLocation
         )
@@ -173,14 +165,14 @@ impl<'a> ReplDebugger<'a> {
         self.send_bool_command(DebugCommandAPI::IsExecutingBrillig)
     }
     fn get_brillig_memory(&self) -> Option<Vec<MemoryValue<FieldElement>>> {
-        extract!(
+        extract_value!(
             self.call_debugger(DebugCommandAPI::GetBrilligMemory),
             DebugCommandAPIResult::MemoryValue
         )
         .unwrap()
     }
     fn get_variables(&self) -> Vec<DebugStackFrame<FieldElement>> {
-        extract!(
+        extract_value!(
             self.call_debugger(DebugCommandAPI::GetVariables),
             DebugCommandAPIResult::Variables
         )
@@ -188,7 +180,7 @@ impl<'a> ReplDebugger<'a> {
     }
 
     fn overwrite_witness(&self, witness: Witness, value: FieldElement) -> Option<FieldElement> {
-        extract!(
+        extract_value!(
             self.call_debugger(DebugCommandAPI::OverwriteWitness(witness, value)),
             DebugCommandAPIResult::Field
         )
@@ -200,29 +192,29 @@ impl<'a> ReplDebugger<'a> {
     }
 
     fn restart_debugger(&self) {
-        extract!(self.call_debugger(DebugCommandAPI::Restart), DebugCommandAPIResult::Unit).unwrap()
+        extract_value!(self.call_debugger(DebugCommandAPI::Restart), DebugCommandAPIResult::Unit).unwrap()
     }
 
     fn get_witness_map(&self) -> WitnessMap<FieldElement> {
-        extract!(
+        extract_value!(
             self.call_debugger(DebugCommandAPI::GetWitnessMap),
             DebugCommandAPIResult::WitnessMap
         )
         .unwrap()
     }
     fn find_opcode_at_current_file_line(&self, line_number: i64) -> Option<DebugLocation> {
-        extract!(
+        extract_value!(
             self.call_debugger(DebugCommandAPI::FindOpcodeAtCurrentFileLine(line_number)),
             DebugCommandAPIResult::DebugLocation
         )
         .unwrap()
     }
     fn finalize(self) -> WitnessStack<FieldElement> {
-        extract!(self.call_debugger(DebugCommandAPI::Finalize), DebugCommandAPIResult::WitnessStack)
+        extract_value!(self.call_debugger(DebugCommandAPI::Finalize), DebugCommandAPIResult::WitnessStack)
             .unwrap()
     }
     fn show_stack_frame(&self, index: usize, debug_location: &DebugLocation) {
-        let opcodes = extract!(
+        let opcodes = extract_value!(
             self.call_debugger(DebugCommandAPI::GetOpcodes),
             DebugCommandAPIResult::Opcodes
         )
@@ -247,8 +239,7 @@ impl<'a> ReplDebugger<'a> {
                 );
             }
         }
-        // todo: should we clone the debug_location so it can be sent?
-        let locations = extract!(
+        let locations = extract_value!(
             self.call_debugger(DebugCommandAPI::GetSourceLocationForDebugLocation(*debug_location)),
             DebugCommandAPIResult::Locations
         )
@@ -258,8 +249,7 @@ impl<'a> ReplDebugger<'a> {
     }
 
     pub fn show_current_call_stack(&self) {
-        // let call_stack = self.context.get_ca
-        let call_stack = extract!(
+        let call_stack = extract_value!(
             self.call_debugger(DebugCommandAPI::GetCallStack),
             DebugCommandAPIResult::DebugLocations
         )
@@ -291,7 +281,7 @@ impl<'a> ReplDebugger<'a> {
                 }
             });
         let opcodes = self.get_opcodes_of_circuit(circuit_id);
-        let current_acir_index: Option<usize> = match current_opcode_location {
+        let current_acir_index = match current_opcode_location {
             Some(OpcodeLocation::Acir(ip)) => Some(ip),
             Some(OpcodeLocation::Brillig { acir_index, .. }) => Some(acir_index),
             None => None,
@@ -417,47 +407,39 @@ impl<'a> ReplDebugger<'a> {
         self.show_current_vm_status();
     }
 
-    fn step_acir_opcode(&mut self) {
+
+    fn execution_control_command(&mut self, command: DebugCommandAPI) {
         if self.validate_in_progress() {
-            let result = self.send_execution_control_command(DebugCommandAPI::StepAcirOpcode);
+            if let DebugCommandAPI::Cont = command {
+                println!("(Continuing execution...)");
+            }
+            let result = self.send_execution_control_command(command);
             self.handle_debug_command_result(result);
         }
+    }
+
+    fn step_acir_opcode(&mut self) { 
+       self.execution_control_command(DebugCommandAPI::StepAcirOpcode);
     }
 
     fn step_into_opcode(&mut self) {
-        if self.validate_in_progress() {
-            let result = self.send_execution_control_command(DebugCommandAPI::StepIntoOpcode);
-            self.handle_debug_command_result(result);
-        }
+        self.execution_control_command(DebugCommandAPI::StepIntoOpcode);
     }
 
     fn next_into(&mut self) {
-        if self.validate_in_progress() {
-            let result = self.send_execution_control_command(DebugCommandAPI::NextInto);
-            self.handle_debug_command_result(result);
-        }
+        self.execution_control_command(DebugCommandAPI::NextInto);
     }
 
     fn next_over(&mut self) {
-        if self.validate_in_progress() {
-            let result = self.send_execution_control_command(DebugCommandAPI::NextOver);
-            self.handle_debug_command_result(result);
-        }
+        self.execution_control_command(DebugCommandAPI::NextOver);
     }
 
     fn next_out(&mut self) {
-        if self.validate_in_progress() {
-            let result = self.send_execution_control_command(DebugCommandAPI::NextOut);
-            self.handle_debug_command_result(result);
-        }
+        self.execution_control_command(DebugCommandAPI::NextOut);
     }
 
     fn cont(&mut self) {
-        if self.validate_in_progress() {
-            println!("(Continuing execution...)");
-            let result = self.send_execution_control_command(DebugCommandAPI::Cont);
-            self.handle_debug_command_result(result);
-        }
+        self.execution_control_command(DebugCommandAPI::Cont);
     }
 
     fn restart_session(&mut self) {
@@ -532,7 +514,7 @@ impl<'a> ReplDebugger<'a> {
             println!("Not executing a Brillig block");
             return;
         }
-        extract!(
+        extract_value!(
             self.call_debugger(DebugCommandAPI::WriteBrilligMemory(index, field_value, bit_size)),
             DebugCommandAPIResult::Unit
         )
