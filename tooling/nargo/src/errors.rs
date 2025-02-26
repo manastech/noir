@@ -245,7 +245,7 @@ pub fn try_to_diagnose_runtime_error(
 
 pub fn execution_error_from<F: AcirField>(
     error: OpcodeResolutionError<F>,
-    call_stack: &Vec<ResolvedOpcodeLocation>,
+    call_stack: &[ResolvedOpcodeLocation],
 ) -> ExecutionError<F> {
     let (assertion_payload, brillig_function_id) = match &error {
         OpcodeResolutionError::BrilligFunctionFailed { payload, function_id, .. } => {
@@ -255,19 +255,21 @@ pub fn execution_error_from<F: AcirField>(
         _ => (None, None),
     };
 
-    return match assertion_payload {
+    match assertion_payload {
         Some(payload) => {
-            ExecutionError::AssertionFailed(payload, call_stack.clone(), brillig_function_id)
+            ExecutionError::AssertionFailed(payload, call_stack.to_owned(), brillig_function_id)
         }
         None => {
             let call_stack = match &error {
                 OpcodeResolutionError::UnsatisfiedConstrain { .. }
                 | OpcodeResolutionError::IndexOutOfBounds { .. }
                 | OpcodeResolutionError::InvalidInputBitSize { .. }
-                | OpcodeResolutionError::BrilligFunctionFailed { .. } => Some(call_stack.clone()),
+                | OpcodeResolutionError::BrilligFunctionFailed { .. } => {
+                    Some(call_stack.to_owned())
+                }
                 _ => None,
             };
             ExecutionError::SolvingError(error, call_stack)
         }
-    };
+    }
 }

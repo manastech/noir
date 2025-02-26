@@ -190,11 +190,11 @@ impl std::fmt::Display for DebugLocation {
     }
 }
 
-impl Into<ResolvedOpcodeLocation> for DebugLocation {
-    fn into(self) -> ResolvedOpcodeLocation {
+impl From<DebugLocation> for ResolvedOpcodeLocation {
+    fn from(debug_loc: DebugLocation) -> Self {
         ResolvedOpcodeLocation {
-            acir_function_index: usize::try_from(self.circuit_id).unwrap(),
-            opcode_location: self.opcode_location,
+            acir_function_index: usize::try_from(debug_loc.circuit_id).unwrap(),
+            opcode_location: debug_loc.opcode_location,
         }
     }
 }
@@ -332,7 +332,7 @@ impl<'a, B: BlackBoxFunctionSolver<FieldElement>> DebugContext<'a, B> {
             acir_opcode_addresses,
             initial_witness: initial_witness.clone(), // keeping it to be able to restart the context by itself
             acvm: initialize_acvm(
-                &blackbox_solver,
+                blackbox_solver,
                 circuits,
                 initial_witness,
                 unconstrained_functions,
@@ -599,7 +599,11 @@ impl<'a, B: BlackBoxFunctionSolver<FieldElement>> DebugContext<'a, B> {
             Err(err) => {
                 let error = execution_error_from(
                     err,
-                    &self.get_call_stack().into_iter().map(|op| op.into()).collect(),
+                    &self
+                        .get_call_stack()
+                        .into_iter()
+                        .map(|op| op.into())
+                        .collect::<Vec<ResolvedOpcodeLocation>>(),
                 );
                 DebugCommandResult::Error(NargoError::ExecutionError(error))
             }
@@ -927,7 +931,7 @@ impl<'a, B: BlackBoxFunctionSolver<FieldElement>> DebugContext<'a, B> {
         self.brillig_solver = None;
         self.witness_stack = WitnessStack::default();
         self.acvm_stack = vec![];
-        self.foreign_call_executor.restart(&self.debug_artifact);
+        self.foreign_call_executor.restart(self.debug_artifact);
         self.acvm = initialize_acvm(
             self.backend,
             self.circuits,

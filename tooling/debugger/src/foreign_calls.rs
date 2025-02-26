@@ -46,7 +46,7 @@ pub trait DebugForeignCallExecutor: ForeignCallExecutor<FieldElement> {
     fn get_variables(&self) -> Vec<StackFrame<FieldElement>>;
     fn current_stack_frame(&self) -> Option<StackFrame<FieldElement>>;
     fn get_foreign_call_resolver_url(&self) -> Option<String>;
-    fn restart(&mut self, artifact: &DebugArtifact) -> ();
+    fn restart(&mut self, artifact: &DebugArtifact);
 }
 
 #[derive(Default)]
@@ -64,9 +64,9 @@ impl DefaultDebugForeignCallExecutor {
         package_name: String,
     ) -> impl DebugForeignCallExecutor + '_ {
         DefaultForeignCallBuilder {
-            output: output,
+            output,
             enable_mocks: true,
-            resolver_url: resolver_url,
+            resolver_url,
             root_path: root_path.clone(),
             package_name: Some(package_name),
         }
@@ -131,7 +131,7 @@ impl DebugForeignCallExecutor for DefaultDebugForeignCallExecutor {
         self.foreign_call_resolver_url.clone()
     }
 
-    fn restart(&mut self, artifact: &DebugArtifact) -> () {
+    fn restart(&mut self, artifact: &DebugArtifact) {
         self.debug_vars = DebugVars::default();
         self.load_artifact(artifact);
     }
@@ -240,7 +240,7 @@ where
     fn get_foreign_call_resolver_url(&self) -> Option<String> {
         self.handler().get_foreign_call_resolver_url()
     }
-    fn restart(&mut self, artifact: &DebugArtifact) -> () {
-        (&mut self.handler).restart(artifact);
+    fn restart(&mut self, artifact: &DebugArtifact) {
+        self.handler.restart(artifact);
     }
 }
