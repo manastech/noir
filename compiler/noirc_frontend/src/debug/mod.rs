@@ -1,7 +1,7 @@
 use crate::ast::PathSegment;
 use crate::parse_program;
-use crate::signed_field::SignedField;
 use crate::parser::{ParsedModule, ParsedSubModule};
+use crate::signed_field::SignedField;
 use crate::{
     ast,
     ast::Path,

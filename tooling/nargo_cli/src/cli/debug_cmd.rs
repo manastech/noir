@@ -147,7 +147,7 @@ pub(crate) fn compile_options_for_debugging(
     }
 }
 
-fn print_test_result(test_result: TestResult, file_manager: &FileManager) -> () {
+fn print_test_result(test_result: TestResult, file_manager: &FileManager) {
     let formatter: Box<dyn Formatter> = Box::new(PrettyFormatter);
     formatter
         .test_end_sync(&test_result, 1, 1, file_manager, true, false, false)
@@ -162,7 +162,7 @@ fn debug_test_fn(
     compile_options: CompileOptions,
     run_params: RunParams,
 ) -> TestResult {
-    let compiled_program = compile_test_fn_for_debugging(&test, context, package, compile_options);
+    let compiled_program = compile_test_fn_for_debugging(test, context, package, compile_options);
 
     let test_status = match compiled_program {
         Ok(compiled_program) => {
@@ -230,7 +230,7 @@ pub(crate) fn compile_bin_package_for_debugging(
             &parsed_files,
             workspace,
             package,
-            &compile_options,
+            compile_options,
             None,
             debug_state,
         )
@@ -240,7 +240,7 @@ pub(crate) fn compile_bin_package_for_debugging(
             &parsed_files,
             workspace,
             package,
-            &compile_options,
+            compile_options,
             None,
         )
     };
@@ -371,7 +371,7 @@ fn get_test_function(
 
 fn load_workspace_files(workspace: &Workspace) -> (FileManager, ParsedFiles) {
     let mut file_manager = file_manager_with_stdlib(std::path::Path::new(""));
-    insert_all_files_for_workspace_into_file_manager(&workspace, &mut file_manager);
+    insert_all_files_for_workspace_into_file_manager(workspace, &mut file_manager);
 
     let parsed_files = parse_all(&file_manager);
     (file_manager, parsed_files)

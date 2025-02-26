@@ -35,7 +35,6 @@ pub(super) enum DebugCommandAPIResult {
     Field(Option<FieldElement>),
 }
 
-
 #[derive(Debug)]
 pub(super) enum DebugCommandAPI {
     GetCurrentDebugLocation,
@@ -95,10 +94,10 @@ pub(super) fn start_debugger<'a>(
                     DebugCommandAPIResult::DebugLocation(context.get_current_debug_location())
                 }
                 DebugCommandAPI::GetOpcodes => {
-                    DebugCommandAPIResult::Opcodes(to_vec(context.get_opcodes()))
+                    DebugCommandAPIResult::Opcodes(context.get_opcodes().to_owned())
                 }
                 DebugCommandAPI::GetOpcodesOfCircuit(circuit_id) => DebugCommandAPIResult::Opcodes(
-                    to_vec(context.get_opcodes_of_circuit(circuit_id)),
+                    context.get_opcodes_of_circuit(circuit_id).to_owned(),
                 ),
                 DebugCommandAPI::GetSourceLocationForDebugLocation(debug_location) => {
                     DebugCommandAPIResult::Locations(
@@ -142,7 +141,7 @@ pub(super) fn start_debugger<'a>(
                 }
 
                 DebugCommandAPI::GetVariables => DebugCommandAPIResult::Variables(
-                    context.get_variables().iter().map(|var| DebugStackFrame::from(var)).collect(),
+                    context.get_variables().iter().map(DebugStackFrame::from).collect(),
                 ),
                 DebugCommandAPI::IsSolved => DebugCommandAPIResult::Bool(context.is_solved()),
                 DebugCommandAPI::StepAcirOpcode => {
@@ -187,8 +186,4 @@ pub(super) fn start_debugger<'a>(
             break;
         }
     }
-}
-
-fn to_vec(opcodes: &[Opcode<FieldElement>]) -> Vec<Opcode<FieldElement>> {
-    opcodes.iter().map(|op| op.clone()).collect()
 }

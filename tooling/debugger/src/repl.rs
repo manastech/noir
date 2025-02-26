@@ -109,7 +109,13 @@ impl<'a> ReplDebugger<'a> {
                         );
                     }
                 }
-                let locations = extract_value!(self.call_debugger(DebugCommandAPI::GetSourceLocationForDebugLocation(location)), DebugCommandAPIResult::Locations).unwrap();
+                let locations = extract_value!(
+                    self.call_debugger(DebugCommandAPI::GetSourceLocationForDebugLocation(
+                        location
+                    )),
+                    DebugCommandAPIResult::Locations
+                )
+                .unwrap();
 
                 print_source_code_location(
                     self.debug_artifact,
@@ -121,7 +127,8 @@ impl<'a> ReplDebugger<'a> {
     }
 
     fn send_execution_control_command(&self, command: DebugCommandAPI) -> DebugCommandResult {
-        extract_value!(self.call_debugger(command), DebugCommandAPIResult::DebugCommandResult).unwrap()
+        extract_value!(self.call_debugger(command), DebugCommandAPIResult::DebugCommandResult)
+            .unwrap()
     }
 
     // TODO: find a better name
@@ -192,7 +199,8 @@ impl<'a> ReplDebugger<'a> {
     }
 
     fn restart_debugger(&self) {
-        extract_value!(self.call_debugger(DebugCommandAPI::Restart), DebugCommandAPIResult::Unit).unwrap()
+        extract_value!(self.call_debugger(DebugCommandAPI::Restart), DebugCommandAPIResult::Unit)
+            .unwrap()
     }
 
     fn get_witness_map(&self) -> WitnessMap<FieldElement> {
@@ -210,8 +218,11 @@ impl<'a> ReplDebugger<'a> {
         .unwrap()
     }
     fn finalize(self) -> WitnessStack<FieldElement> {
-        extract_value!(self.call_debugger(DebugCommandAPI::Finalize), DebugCommandAPIResult::WitnessStack)
-            .unwrap()
+        extract_value!(
+            self.call_debugger(DebugCommandAPI::Finalize),
+            DebugCommandAPIResult::WitnessStack
+        )
+        .unwrap()
     }
     fn show_stack_frame(&self, index: usize, debug_location: &DebugLocation) {
         let opcodes = extract_value!(
@@ -407,7 +418,6 @@ impl<'a> ReplDebugger<'a> {
         self.show_current_vm_status();
     }
 
-
     fn execution_control_command(&mut self, command: DebugCommandAPI) {
         if self.validate_in_progress() {
             if let DebugCommandAPI::Cont = command {
@@ -418,8 +428,8 @@ impl<'a> ReplDebugger<'a> {
         }
     }
 
-    fn step_acir_opcode(&mut self) { 
-       self.execution_control_command(DebugCommandAPI::StepAcirOpcode);
+    fn step_acir_opcode(&mut self) {
+        self.execution_control_command(DebugCommandAPI::StepAcirOpcode);
     }
 
     fn step_into_opcode(&mut self) {
