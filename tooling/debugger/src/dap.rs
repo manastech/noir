@@ -2,8 +2,6 @@ use std::collections::BTreeMap;
 use std::io::{Read, Write};
 use std::path::PathBuf;
 
-use acvm::acir::circuit::brillig::BrilligBytecode;
-use acvm::acir::circuit::Circuit;
 use acvm::acir::native_types::WitnessMap;
 use acvm::{BlackBoxFunctionSolver, FieldElement};
 use nargo::PrintOutput;
@@ -63,16 +61,15 @@ impl<'a, R: Read, W: Write, B: BlackBoxFunctionSolver<FieldElement>> DapSession<
     pub fn new(
         server: Server<R, W>,
         solver: &'a B,
-        circuits: &'a [Circuit<FieldElement>],
+        program: &'a CompiledProgram,
         debug_artifact: &'a DebugArtifact,
         initial_witness: WitnessMap<FieldElement>,
-        unconstrained_functions: &'a [BrilligBytecode<FieldElement>],
         root_path: Option<PathBuf>,
         package_name: String,
     ) -> Self {
         let context = DebugContext::new(
             solver,
-            circuits,
+            &program.program.functions,
             debug_artifact,
             initial_witness,
             Box::new(DefaultDebugForeignCallExecutor::from_artifact(
@@ -82,7 +79,7 @@ impl<'a, R: Read, W: Write, B: BlackBoxFunctionSolver<FieldElement>> DapSession<
                 root_path,
                 package_name,
             )),
-            unconstrained_functions,
+            &program.program.unconstrained_functions,
         );
         Self {
             server,
@@ -620,14 +617,14 @@ pub fn run_session<R: Read, W: Write, B: BlackBoxFunctionSolver<FieldElement>>(
     root_path: Option<PathBuf>,
     package_name: String,
 ) -> Result<(), ServerError> {
-    let debug_artifact = DebugArtifact { debug_symbols: program.debug, file_map: program.file_map };
+    let debug_artifact =
+        DebugArtifact { debug_symbols: program.debug.clone(), file_map: program.file_map.clone() };
     let mut session = DapSession::new(
         server,
         solver,
-        &program.program.functions,
+        &program,
         &debug_artifact,
         initial_witness,
-        &program.program.unconstrained_functions,
         root_path,
         package_name,
     );

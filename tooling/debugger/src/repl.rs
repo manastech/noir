@@ -1,5 +1,5 @@
 use crate::context::{DebugCommandResult, DebugLocation, DebugStackFrame};
-use crate::debug::{start_debugger, DebugCommandAPI, DebugCommandAPIResult};
+use crate::debug::{DebugCommandAPI, DebugCommandAPIResult, Debugger};
 
 use acvm::acir::brillig::BitSize;
 use acvm::acir::circuit::brillig::{BrilligBytecode, BrilligFunctionId};
@@ -578,16 +578,14 @@ pub fn run(
     let (command_tx, command_rx) = mpsc::channel::<DebugCommandAPI>();
     let (result_tx, result_rx) = mpsc::channel::<DebugCommandAPIResult>();
     thread::spawn(move || {
-        start_debugger(
-            command_rx,
-            result_tx,
-            debugger_circuits,
-            &debugger_artifact,
+        let debugger = Debugger {
+            circuits: debugger_circuits,
+            debug_artifact: &debugger_artifact,
             initial_witness,
-            foreign_call_executor,
-            debugger_unconstrained_functions,
+            unconstrained_functions: debugger_unconstrained_functions,
             pedantic_solving,
-        );
+        };
+        debugger.start_debugging(command_rx, result_tx, foreign_call_executor);
     });
 
     let context = RefCell::new(ReplDebugger::new(
