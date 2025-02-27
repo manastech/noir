@@ -1,9 +1,9 @@
 use acvm::acir::circuit::ExpressionWidth;
 use acvm::acir::native_types::WitnessMap;
 use acvm::FieldElement;
-use bn254_blackbox_solver::Bn254BlackBoxSolver;
 use clap::Args;
 use nargo::constants::PROVER_INPUT_FILE;
+use nargo::package::Package;
 use nargo::workspace::Workspace;
 use nargo_toml::{get_package_manifest, resolve_workspace_from_toml, PackageSelection};
 use noirc_abi::input_parser::Format;
@@ -19,7 +19,8 @@ use dap::server::Server;
 use dap::types::Capabilities;
 use serde_json::Value;
 
-use super::debug_cmd::{compile_bin_package_for_debugging, compile_options_for_debugging};
+use super::check_cmd::check_crate_and_report_errors;
+use super::debug_cmd::{compile_bin_package_for_debugging, compile_options_for_debugging, compile_test_fn_for_debugging, get_test_function, load_workspace_files, prepare_package_for_debug};
 use super::fs::inputs::read_inputs_from_file;
 use crate::errors::CliError;
 
@@ -48,6 +49,9 @@ pub(crate) struct DapCommand {
 
     #[clap(long)]
     preflight_skip_instrumentation: bool,
+
+    #[clap(long)]
+    preflight_test_name: Option<String>,
 
     /// Use pedantic ACVM solving, i.e. double-check some black-box function
     /// assumptions when solving.
@@ -99,6 +103,36 @@ fn workspace_not_found_error_msg(project_folder: &str, package: Option<&str>) ->
     }
 }
 
+fn compile_main(
+    workspace: &Workspace,
+    package: &Package,
+    expression_width: ExpressionWidth,
+    compile_options: &CompileOptions,
+) -> Result<CompiledProgram, LoadError> {
+    compile_bin_package_for_debugging(&workspace, package, &compile_options, expression_width)
+        .map_err(|_| LoadError::Generic("Failed to compile project".into()))
+}
+
+fn compile_test(
+    workspace: &Workspace,
+    package: &Package,
+    expression_width: ExpressionWidth,
+    compile_options: CompileOptions,
+    test_name: String,
+) -> Result<CompiledProgram, LoadError> {
+    let (file_manager, mut parsed_files) = load_workspace_files(&workspace);
+
+    let (mut context, crate_id) =
+        prepare_package_for_debug(&file_manager, &mut parsed_files, package, &workspace);
+
+    check_crate_and_report_errors(&mut context, crate_id, &compile_options).map_err(|_| LoadError::Generic("Failed to compile project".into()))?;
+
+    let test = get_test_function(crate_id, &context, &test_name).map_err(|_| LoadError::Generic("Failed to compile project".into()))?;
+
+    compile_test_fn_for_debugging(&test, &mut context, package, compile_options, Some(expression_width)).map_err(|_| LoadError::Generic("Failed to compile project".into()))
+
+}
+
 fn load_and_compile_project(
     project_folder: &str,
     package: Option<&str>,
@@ -106,19 +140,22 @@ fn load_and_compile_project(
     expression_width: ExpressionWidth,
     acir_mode: bool,
     skip_instrumentation: bool,
+    test_name: Option<String>,
 ) -> Result<(CompiledProgram, WitnessMap<FieldElement>, PathBuf, String), LoadError> {
     let workspace = find_workspace(project_folder, package)
         .ok_or(LoadError::Generic(workspace_not_found_error_msg(project_folder, package)))?;
     let package = workspace
         .into_iter()
-        .find(|p| p.is_binary())
-        .ok_or(LoadError::Generic("No matching binary packages found in workspace".into()))?;
+        .find(|p| p.is_binary() || p.is_contract())
+        .ok_or(LoadError::Generic("No matching binary or contract packages found in workspace. Only these packages can be debugged.".into()))?;
 
     let compile_options =
         compile_options_for_debugging(acir_mode, skip_instrumentation, CompileOptions::default());
-    let compiled_program =
-        compile_bin_package_for_debugging(&workspace, package, &compile_options, expression_width)
-            .map_err(|_| LoadError::Generic("Failed to compile project".into()))?;
+
+    let compiled_program = match test_name {
+        None => compile_main(&workspace, &package, expression_width, &compile_options),
+        Some(test_name) => compile_test(&workspace, &package, expression_width, compile_options, test_name),
+    }?;
 
     let (inputs_map, _) =
         read_inputs_from_file(&package.root_dir, prover_name, Format::Toml, &compiled_program.abi)
@@ -174,6 +211,12 @@ fn loop_uninitialized_dap<R: Read, W: Write>(
                     .get("skipInstrumentation")
                     .and_then(|v| v.as_bool())
                     .unwrap_or(generate_acir);
+                let test_name =
+                    additional_data.get("testName").and_then(|v| v.as_str()).map(String::from);
+                let oracle_resolver_url = additional_data
+                    .get("oracleResolver")
+                    .and_then(|v| v.as_str())
+                    .map(String::from);
 
                 eprintln!("Project folder: {}", project_folder);
                 eprintln!("Package: {}", package.unwrap_or("(default)"));
@@ -186,17 +229,19 @@ fn loop_uninitialized_dap<R: Read, W: Write>(
                     expression_width,
                     generate_acir,
                     skip_instrumentation,
+                    test_name,
                 ) {
                     Ok((compiled_program, initial_witness, root_path, package_name)) => {
                         server.respond(req.ack()?)?;
 
                         noir_debugger::run_dap_loop(
                             server,
-                            &Bn254BlackBoxSolver(pedantic_solving),
                             compiled_program,
                             initial_witness,
                             Some(root_path),
                             package_name,
+                            pedantic_solving,
+                            oracle_resolver_url,
                         )?;
                         break;
                     }
@@ -231,6 +276,7 @@ fn run_preflight_check(
     };
 
     let package = args.preflight_package.as_deref();
+    let test_name = args.preflight_test_name;
     let prover_name = args.preflight_prover_name.as_deref().unwrap_or(PROVER_INPUT_FILE);
 
     let _ = load_and_compile_project(
@@ -240,6 +286,7 @@ fn run_preflight_check(
         expression_width,
         args.preflight_generate_acir,
         args.preflight_skip_instrumentation,
+        test_name,
     )?;
 
     Ok(())
