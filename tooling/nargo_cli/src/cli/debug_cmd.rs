@@ -164,7 +164,7 @@ fn debug_test_fn(
     compile_options: CompileOptions,
     run_params: RunParams,
 ) -> TestResult {
-    let compiled_program = compile_test_fn_for_debugging(test, context, package, compile_options);
+    let compiled_program = compile_test_fn_for_debugging(test, context, package, compile_options, None);
 
     let test_status = match compiled_program {
         Ok(compiled_program) => {
@@ -201,16 +201,17 @@ fn debug_test_fn(
     )
 }
 
-fn compile_test_fn_for_debugging(
+pub(super) fn compile_test_fn_for_debugging(
     test_def: &TestDefinition,
     context: &mut Context,
     package: &Package,
     compile_options: CompileOptions,
+    expression_with: Option<ExpressionWidth>,
 ) -> Result<CompiledProgram, noirc_driver::CompileError> {
     let compiled_program =
         compile_no_check(context, &compile_options, test_def.function.get_id(), None, false)?;
     let expression_width =
-        get_target_width(package.expression_width, compile_options.expression_width);
+    expression_with.unwrap_or(get_target_width(package.expression_width, compile_options.expression_width));
     let compiled_program = nargo::ops::transform_program(compiled_program, expression_width);
     Ok(compiled_program)
 }
@@ -323,18 +324,17 @@ fn debug_test(
     Ok(())
 }
 
-struct TestDefinition {
+pub(super) struct TestDefinition {
     name: String,
     function: TestFunction,
 }
 
 // TODO: move to nargo::ops and reuse in test_cmd?
-fn get_test_function(
+pub(super) fn get_test_function(
     crate_id: CrateId,
     context: &Context,
     test_name: &str,
 ) -> Result<TestDefinition, CliError> {
-    // TODO: review Contains signature and check if its ok to send test_name as single element
     let test_pattern = FunctionNameMatch::Contains(vec![test_name.into()]);
 
     let test_functions = context.get_all_test_functions_in_crate_matching(&crate_id, &test_pattern);
@@ -371,14 +371,14 @@ fn get_test_function(
     Ok(TestDefinition { name: test_name, function: test_function })
 }
 
-fn load_workspace_files(workspace: &Workspace) -> (FileManager, ParsedFiles) {
+pub(super) fn load_workspace_files(workspace: &Workspace) -> (FileManager, ParsedFiles) {
     let mut file_manager = file_manager_with_stdlib(Path::new(""));
     insert_all_files_for_workspace_into_file_manager(workspace, &mut file_manager);
 
     let parsed_files = parse_all(&file_manager);
     (file_manager, parsed_files)
 }
-pub(crate) fn prepare_package_for_debug<'a>(
+pub(super) fn prepare_package_for_debug<'a>(
     file_manager: &'a FileManager,
     parsed_files: &'a mut ParsedFiles,
     package: &'a Package,

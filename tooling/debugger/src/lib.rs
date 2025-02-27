@@ -12,7 +12,7 @@ use std::path::PathBuf;
 use ::dap::errors::ServerError;
 use ::dap::server::Server;
 use acvm::acir::native_types::{WitnessMap, WitnessStack};
-use acvm::{BlackBoxFunctionSolver, FieldElement};
+use acvm::FieldElement;
 
 use nargo::NargoError;
 use noirc_driver::CompiledProgram;
@@ -37,13 +37,14 @@ pub fn run_repl_session(
     )
 }
 
-pub fn run_dap_loop<R: Read, W: Write, B: BlackBoxFunctionSolver<FieldElement>>(
+pub fn run_dap_loop<R: Read, W: Write>(
     server: Server<R, W>,
-    solver: &B,
     program: CompiledProgram,
     initial_witness: WitnessMap<FieldElement>,
     root_path: Option<PathBuf>,
     package_name: String,
+    pedantic_solving: bool,
+    foreign_call_resolver_url: Option<String>,
 ) -> Result<(), ServerError> {
-    dap::run_session(server, solver, program, initial_witness, root_path, package_name)
+    dap::run_session(server, program, initial_witness, root_path, package_name, pedantic_solving, foreign_call_resolver_url)
 }

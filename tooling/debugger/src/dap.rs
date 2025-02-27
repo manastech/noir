@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 use acvm::acir::native_types::WitnessMap;
 use acvm::{BlackBoxFunctionSolver, FieldElement};
+use bn254_blackbox_solver::Bn254BlackBoxSolver;
 use nargo::PrintOutput;
 
 use crate::context::DebugContext;
@@ -66,6 +67,7 @@ impl<'a, R: Read, W: Write, B: BlackBoxFunctionSolver<FieldElement>> DapSession<
         initial_witness: WitnessMap<FieldElement>,
         root_path: Option<PathBuf>,
         package_name: String,
+        foreign_call_resolver_url: Option<String>,
     ) -> Self {
         let context = DebugContext::new(
             solver,
@@ -74,7 +76,7 @@ impl<'a, R: Read, W: Write, B: BlackBoxFunctionSolver<FieldElement>> DapSession<
             initial_witness,
             Box::new(DefaultDebugForeignCallExecutor::from_artifact(
                 PrintOutput::Stdout,
-                None, // TODO: set oracle_resolver url
+                foreign_call_resolver_url,
                 debug_artifact,
                 root_path,
                 package_name,
@@ -609,24 +611,28 @@ impl<'a, R: Read, W: Write, B: BlackBoxFunctionSolver<FieldElement>> DapSession<
     }
 }
 
-pub fn run_session<R: Read, W: Write, B: BlackBoxFunctionSolver<FieldElement>>(
+pub fn run_session<R: Read, W: Write>(
     server: Server<R, W>,
-    solver: &B,
     program: CompiledProgram,
     initial_witness: WitnessMap<FieldElement>,
     root_path: Option<PathBuf>,
     package_name: String,
+    pedantic_solver: bool,
+    foreign_call_resolver_url: Option<String>,
 ) -> Result<(), ServerError> {
     let debug_artifact =
         DebugArtifact { debug_symbols: program.debug.clone(), file_map: program.file_map.clone() };
+    
+    let solver = Bn254BlackBoxSolver(pedantic_solver);
     let mut session = DapSession::new(
         server,
-        solver,
+        &solver,
         &program,
         &debug_artifact,
         initial_witness,
         root_path,
         package_name,
+        foreign_call_resolver_url,
     );
 
     session.run_loop()
