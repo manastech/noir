@@ -14,6 +14,7 @@ use ::dap::server::Server;
 use acvm::acir::native_types::{WitnessMap, WitnessStack};
 use acvm::FieldElement;
 
+pub use dap::ExecutionResult;
 use nargo::NargoError;
 use noirc_driver::CompiledProgram;
 
@@ -38,13 +39,21 @@ pub fn run_repl_session(
 }
 
 pub fn run_dap_loop<R: Read, W: Write>(
-    server: Server<R, W>,
+    server: &mut Server<R, W>,
     program: CompiledProgram,
     initial_witness: WitnessMap<FieldElement>,
     root_path: Option<PathBuf>,
     package_name: String,
     pedantic_solving: bool,
     foreign_call_resolver_url: Option<String>,
-) -> Result<(), ServerError> {
-    dap::run_session(server, program, initial_witness, root_path, package_name, pedantic_solving, foreign_call_resolver_url)
+) -> Result<ExecutionResult, ServerError> {
+    dap::run_session(
+        server,
+        program,
+        initial_witness,
+        root_path,
+        package_name,
+        pedantic_solving,
+        foreign_call_resolver_url,
+    )
 }
