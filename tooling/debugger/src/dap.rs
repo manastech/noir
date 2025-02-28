@@ -2,10 +2,10 @@ use std::collections::BTreeMap;
 use std::io::{Read, Write};
 use std::path::PathBuf;
 
-use acvm::acir::native_types::WitnessMap;
+use acvm::acir::native_types::{WitnessMap, WitnessStack};
 use acvm::{BlackBoxFunctionSolver, FieldElement};
 use bn254_blackbox_solver::Bn254BlackBoxSolver;
-use nargo::PrintOutput;
+use nargo::{NargoError, PrintOutput};
 
 use crate::context::DebugContext;
 use crate::context::{DebugCommandResult, DebugLocation};
@@ -33,13 +33,14 @@ use noirc_driver::CompiledProgram;
 type BreakpointId = i64;
 
 pub struct DapSession<'a, R: Read, W: Write, B: BlackBoxFunctionSolver<FieldElement>> {
-    server: Server<R, W>,
+    server: &'a mut Server<R, W>,
     context: DebugContext<'a, B>,
     debug_artifact: &'a DebugArtifact,
     running: bool,
     next_breakpoint_id: BreakpointId,
     instruction_breakpoints: Vec<(DebugLocation, BreakpointId)>,
     source_breakpoints: BTreeMap<FileId, Vec<(DebugLocation, BreakpointId)>>,
+    last_result: DebugCommandResult,
 }
 
 enum ScopeReferences {
@@ -60,7 +61,7 @@ impl From<i64> for ScopeReferences {
 
 impl<'a, R: Read, W: Write, B: BlackBoxFunctionSolver<FieldElement>> DapSession<'a, R, W, B> {
     pub fn new(
-        server: Server<R, W>,
+        server: &'a mut Server<R, W>,
         solver: &'a B,
         program: &'a CompiledProgram,
         debug_artifact: &'a DebugArtifact,
@@ -91,6 +92,7 @@ impl<'a, R: Read, W: Write, B: BlackBoxFunctionSolver<FieldElement>> DapSession<
             next_breakpoint_id: 1,
             instruction_breakpoints: vec![],
             source_breakpoints: BTreeMap::new(),
+            last_result: DebugCommandResult::Ok, // TODO: handle circuits with no opcodes ?
         }
     }
 
@@ -130,7 +132,12 @@ impl<'a, R: Read, W: Write, B: BlackBoxFunctionSolver<FieldElement>> DapSession<
             match req.command {
                 Command::Disconnect(_) => {
                     eprintln!("INFO: ending debugging session");
-                    self.server.respond(req.ack()?)?;
+                    self.running = false;
+                    // TODO: review deleting this line
+                    // responding ack here makes the server to close connection
+                    // so the dap_cmd then can't use it to send the test_result to the user
+                    //
+                    // self.server.respond(req.ack()?)?;
                     break;
                 }
                 Command::SetBreakpoints(_) => {
@@ -347,7 +354,8 @@ impl<'a, R: Read, W: Write, B: BlackBoxFunctionSolver<FieldElement>> DapSession<
     }
 
     fn handle_execution_result(&mut self, result: DebugCommandResult) -> Result<(), ServerError> {
-        match result {
+        self.last_result = result;
+        match &self.last_result {
             DebugCommandResult::Done => {
                 self.running = false;
             }
@@ -363,7 +371,7 @@ impl<'a, R: Read, W: Write, B: BlackBoxFunctionSolver<FieldElement>> DapSession<
                 }))?;
             }
             DebugCommandResult::BreakpointReached(location) => {
-                let breakpoint_ids = self.find_breakpoints_at_location(&location);
+                let breakpoint_ids = self.find_breakpoints_at_location(location);
                 self.server.send_event(Event::Stopped(StoppedEventBody {
                     reason: StoppedEventReason::Breakpoint,
                     description: Some(String::from("Paused at breakpoint")),
@@ -374,16 +382,21 @@ impl<'a, R: Read, W: Write, B: BlackBoxFunctionSolver<FieldElement>> DapSession<
                     hit_breakpoint_ids: Some(breakpoint_ids),
                 }))?;
             }
-            DebugCommandResult::Error(err) => {
-                self.server.send_event(Event::Stopped(StoppedEventBody {
-                    reason: StoppedEventReason::Exception,
-                    description: Some(format!("{err:?}")),
-                    thread_id: Some(0),
-                    preserve_focus_hint: Some(false),
-                    text: None,
-                    all_threads_stopped: Some(false),
-                    hit_breakpoint_ids: None,
-                }))?;
+            DebugCommandResult::Error(_err) => {
+                // TODO: review:
+                // is it better for the user to have the possibility to restart the debug session and get out of the error
+                // or is it better to finish the session automatically? so the user does not have to manually stop the execution?
+
+                // self.server.send_event(Event::Stopped(StoppedEventBody {
+                //         reason: StoppedEventReason::Exception,
+                //         description: Some("Stopped on exception".into()),
+                //         thread_id: Some(0),
+                //         preserve_focus_hint: Some(false),
+                //         text: Some(format!("{err:#?}")),
+                //         all_threads_stopped: Some(false),
+                //         hit_breakpoint_ids: None,
+                //     }))?;
+                self.server.send_event(Event::Terminated(None))?;
             }
         }
         Ok(())
@@ -609,20 +622,27 @@ impl<'a, R: Read, W: Write, B: BlackBoxFunctionSolver<FieldElement>> DapSession<
             .respond(req.success(ResponseBody::Variables(VariablesResponse { variables })))?;
         Ok(())
     }
+
+    pub fn last_error(self) -> Option<NargoError<FieldElement>> {
+        match self.last_result {
+            DebugCommandResult::Error(error) => Some(error),
+            _ => None,
+        }
+    }
 }
 
 pub fn run_session<R: Read, W: Write>(
-    server: Server<R, W>,
+    server: &mut Server<R, W>,
     program: CompiledProgram,
     initial_witness: WitnessMap<FieldElement>,
     root_path: Option<PathBuf>,
     package_name: String,
     pedantic_solver: bool,
     foreign_call_resolver_url: Option<String>,
-) -> Result<(), ServerError> {
+) -> Result<ExecutionResult, ServerError> {
     let debug_artifact =
         DebugArtifact { debug_symbols: program.debug.clone(), file_map: program.file_map.clone() };
-    
+
     let solver = Bn254BlackBoxSolver(pedantic_solver);
     let mut session = DapSession::new(
         server,
@@ -635,5 +655,21 @@ pub fn run_session<R: Read, W: Write>(
         foreign_call_resolver_url,
     );
 
-    session.run_loop()
+    session.run_loop()?;
+    if session.context.is_solved() {
+        let solved_witness_stack = session.context.finalize();
+        Ok(ExecutionResult::Solved(solved_witness_stack))
+    } else {
+        match session.last_error() {
+            // Expose the last known error
+            Some(error) => Ok(ExecutionResult::Error(error)),
+            None => Ok(ExecutionResult::Incomplete),
+        }
+    }
+}
+
+pub enum ExecutionResult {
+    Solved(WitnessStack<FieldElement>),
+    Incomplete,
+    Error(NargoError<FieldElement>),
 }

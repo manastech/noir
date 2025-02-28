@@ -143,7 +143,6 @@ pub(crate) fn collect_lenses_for_package(
         let debug_test_lens = CodeLens { range, command: Some(debug_test_command), data: None };
 
         lenses.push(debug_test_lens);
-
     }
 
     if package.is_binary() {

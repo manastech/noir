@@ -164,7 +164,8 @@ fn debug_test_fn(
     compile_options: CompileOptions,
     run_params: RunParams,
 ) -> TestResult {
-    let compiled_program = compile_test_fn_for_debugging(test, context, package, compile_options, None);
+    let compiled_program =
+        compile_test_fn_for_debugging(test, context, package, compile_options, None);
 
     let test_status = match compiled_program {
         Ok(compiled_program) => {
@@ -210,8 +211,8 @@ pub(super) fn compile_test_fn_for_debugging(
 ) -> Result<CompiledProgram, noirc_driver::CompileError> {
     let compiled_program =
         compile_no_check(context, &compile_options, test_def.function.get_id(), None, false)?;
-    let expression_width =
-    expression_with.unwrap_or(get_target_width(package.expression_width, compile_options.expression_width));
+    let expression_width = expression_with
+        .unwrap_or(get_target_width(package.expression_width, compile_options.expression_width));
     let compiled_program = nargo::ops::transform_program(compiled_program, expression_width);
     Ok(compiled_program)
 }
@@ -325,8 +326,8 @@ fn debug_test(
 }
 
 pub(super) struct TestDefinition {
-    name: String,
-    function: TestFunction,
+    pub name: String,
+    pub function: TestFunction,
 }
 
 // TODO: move to nargo::ops and reuse in test_cmd?

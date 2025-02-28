@@ -2,12 +2,17 @@ use acvm::FieldElement;
 use acvm::acir::circuit::ExpressionWidth;
 use acvm::acir::native_types::WitnessMap;
 use clap::Args;
+use dap::errors::ServerError;
+use dap::events::OutputEventBody;
 use nargo::constants::PROVER_INPUT_FILE;
+use nargo::ops::{test_status_program_compile_pass, TestStatus};
 use nargo::package::Package;
 use nargo::workspace::Workspace;
-use nargo_toml::{PackageSelection, get_package_manifest, resolve_workspace_from_toml};
 use noir_artifact_cli::fs::inputs::read_inputs_from_file;
+use nargo_toml::{get_package_manifest, resolve_workspace_from_toml, PackageSelection};
+use noirc_abi::Abi;
 use noirc_driver::{CompileOptions, CompiledProgram, NOIR_ARTIFACT_VERSION_STRING};
+use noirc_errors::debug_info::DebugInfo;
 use noirc_frontend::graph::CrateName;
 
 use std::io::{BufReader, BufWriter, Read, Write};
@@ -16,14 +21,19 @@ use std::path::{Path, PathBuf};
 use dap::requests::Command;
 use dap::responses::ResponseBody;
 use dap::server::Server;
-use dap::types::Capabilities;
+use dap::types::{Capabilities, OutputEventCategory};
 use serde_json::Value;
 
 use super::check_cmd::check_crate_and_report_errors;
-use super::debug_cmd::{compile_bin_package_for_debugging, compile_options_for_debugging, compile_test_fn_for_debugging, get_test_function, load_workspace_files, prepare_package_for_debug};
+use super::debug_cmd::{
+    compile_bin_package_for_debugging, compile_options_for_debugging,
+    compile_test_fn_for_debugging, get_test_function, load_workspace_files,
+    prepare_package_for_debug, TestDefinition,
+};
 use crate::errors::CliError;
 
 use noir_debugger::errors::{DapError, LoadError};
+use noir_debugger::ExecutionResult;
 
 #[derive(Debug, Clone, Args)]
 pub(crate) struct DapCommand {
@@ -108,7 +118,7 @@ fn compile_main(
     expression_width: ExpressionWidth,
     compile_options: &CompileOptions,
 ) -> Result<CompiledProgram, LoadError> {
-    compile_bin_package_for_debugging(&workspace, package, &compile_options, expression_width)
+    compile_bin_package_for_debugging(workspace, package, compile_options, expression_width)
         .map_err(|_| LoadError::Generic("Failed to compile project".into()))
 }
 
@@ -118,18 +128,27 @@ fn compile_test(
     expression_width: ExpressionWidth,
     compile_options: CompileOptions,
     test_name: String,
-) -> Result<CompiledProgram, LoadError> {
-    let (file_manager, mut parsed_files) = load_workspace_files(&workspace);
+) -> Result<(CompiledProgram, TestDefinition), LoadError> {
+    let (file_manager, mut parsed_files) = load_workspace_files(workspace);
 
     let (mut context, crate_id) =
-        prepare_package_for_debug(&file_manager, &mut parsed_files, package, &workspace);
+        prepare_package_for_debug(&file_manager, &mut parsed_files, package, workspace);
 
-    check_crate_and_report_errors(&mut context, crate_id, &compile_options).map_err(|_| LoadError::Generic("Failed to compile project".into()))?;
+    check_crate_and_report_errors(&mut context, crate_id, &compile_options)
+        .map_err(|_| LoadError::Generic("Failed to compile project".into()))?;
 
-    let test = get_test_function(crate_id, &context, &test_name).map_err(|_| LoadError::Generic("Failed to compile project".into()))?;
+    let test = get_test_function(crate_id, &context, &test_name)
+        .map_err(|_| LoadError::Generic("Failed to compile project".into()))?;
 
-    compile_test_fn_for_debugging(&test, &mut context, package, compile_options, Some(expression_width)).map_err(|_| LoadError::Generic("Failed to compile project".into()))
-
+    let program = compile_test_fn_for_debugging(
+        &test,
+        &mut context,
+        package,
+        compile_options,
+        Some(expression_width),
+    )
+    .map_err(|_| LoadError::Generic("Failed to compile project".into()))?;
+    Ok((program, test))
 }
 
 fn load_and_compile_project(
@@ -140,7 +159,10 @@ fn load_and_compile_project(
     acir_mode: bool,
     skip_instrumentation: bool,
     test_name: Option<String>,
-) -> Result<(CompiledProgram, WitnessMap<FieldElement>, PathBuf, String), LoadError> {
+) -> Result<
+    (CompiledProgram, WitnessMap<FieldElement>, PathBuf, String, Option<TestDefinition>),
+    LoadError,
+> {
     let workspace = find_workspace(project_folder, package)
         .ok_or(LoadError::Generic(workspace_not_found_error_msg(project_folder, package)))?;
     let package = workspace
@@ -151,9 +173,16 @@ fn load_and_compile_project(
     let compile_options =
         compile_options_for_debugging(acir_mode, skip_instrumentation, CompileOptions::default());
 
-    let compiled_program = match test_name {
-        None => compile_main(&workspace, &package, expression_width, &compile_options),
-        Some(test_name) => compile_test(&workspace, &package, expression_width, compile_options, test_name),
+    let (compiled_program, test_def) = match test_name {
+        None => {
+            let program = compile_main(&workspace, package, expression_width, &compile_options)?;
+            Ok((program, None))
+        }
+        Some(test_name) => {
+            let (program, test_def) =
+                compile_test(&workspace, package, expression_width, compile_options, test_name)?;
+            Ok((program, Some(test_def)))
+        }
     }?;
 
 
@@ -169,7 +198,13 @@ fn load_and_compile_project(
         .encode(&inputs_map, None)
         .map_err(|_| LoadError::Generic("Failed to encode inputs".into()))?;
 
-    Ok((compiled_program, initial_witness, workspace.root_dir.clone(), package.name.to_string()))
+    Ok((
+        compiled_program,
+        initial_witness,
+        workspace.root_dir.clone(),
+        package.name.to_string(),
+        test_def,
+    ))
 }
 
 fn loop_uninitialized_dap<R: Read, W: Write>(
@@ -233,18 +268,24 @@ fn loop_uninitialized_dap<R: Read, W: Write>(
                     skip_instrumentation,
                     test_name,
                 ) {
-                    Ok((compiled_program, initial_witness, root_path, package_name)) => {
+                    Ok((compiled_program, initial_witness, root_path, package_name, test_def)) => {
                         server.respond(req.ack()?)?;
+                        let abi = compiled_program.abi.clone();
+                        let debug = compiled_program.debug.clone();
 
-                        noir_debugger::run_dap_loop(
-                            server,
+                        let result = noir_debugger::run_dap_loop(
+                            &mut server,
                             compiled_program,
                             initial_witness,
                             Some(root_path),
-                            package_name,
+                            package_name.clone(),
                             pedantic_solving,
                             oracle_resolver_url,
                         )?;
+
+                        if let Some(test) = test_def {
+                            analyze_test_result(&mut server, result, test, abi, debug)?;
+                        }
                         break;
                     }
                     Err(LoadError::Generic(message)) => {
@@ -265,6 +306,47 @@ fn loop_uninitialized_dap<R: Read, W: Write>(
         }
     }
     Ok(())
+}
+
+fn analyze_test_result<R: Read, W: Write>(
+    server: &mut Server<R, W>,
+    result: ExecutionResult,
+    test: TestDefinition,
+    abi: Abi,
+    debug: Vec<DebugInfo>,
+) -> Result<(), ServerError> {
+    let test_status = match result {
+        ExecutionResult::Solved(result) => {
+            test_status_program_compile_pass(&test.function, &abi, &debug, &Ok(result))
+        }
+        // Test execution failed
+        ExecutionResult::Error(error) => {
+            test_status_program_compile_pass(&test.function, &abi, &debug, &Err(error))
+        }
+        // Execution didn't complete
+        ExecutionResult::Incomplete => {
+            TestStatus::Fail { message: "Execution halted".into(), error_diagnostic: None }
+        }
+    };
+
+    let test_result_message = match test_status {
+        TestStatus::Pass => "✓ Test passed".into(),
+        TestStatus::Fail { message, error_diagnostic } => {
+            let basic_message = format!("x Test failed: {message}");
+            match error_diagnostic {
+                Some(diagnostic) => format!("{basic_message}.\n{diagnostic:#?}"),
+                None => basic_message,
+            }
+        }
+        TestStatus::CompileError(diagnostic) => format!("x Test failed.\n{diagnostic:#?}"),
+        TestStatus::Skipped => "* Test skipped".into(),
+    };
+
+    server.send_event(dap::events::Event::Output(OutputEventBody {
+        category: Some(OutputEventCategory::Console),
+        output: test_result_message,
+        ..OutputEventBody::default()
+    }))
 }
 
 fn run_preflight_check(
