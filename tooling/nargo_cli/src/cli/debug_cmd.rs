@@ -125,7 +125,7 @@ pub(crate) fn run(args: DebugCommand, workspace: Workspace) -> Result<(), CliErr
     };
 
     let compile_options =
-        compile_options_for_debugging(acir_mode, skip_instrumentation, args.compile_options);
+        compile_options_for_debugging(acir_mode, skip_instrumentation, None, args.compile_options);
 
     if let Some(test_name) = args.test_name {
         debug_test(test_name, package, workspace, compile_options, run_params)
@@ -137,11 +137,13 @@ pub(crate) fn run(args: DebugCommand, workspace: Workspace) -> Result<(), CliErr
 pub(crate) fn compile_options_for_debugging(
     acir_mode: bool,
     skip_instrumentation: bool,
+    expression_width: Option<ExpressionWidth>,
     compile_options: CompileOptions,
 ) -> CompileOptions {
     CompileOptions {
         instrument_debug: !skip_instrumentation,
         force_brillig: !acir_mode,
+        expression_width,
         ..compile_options
     }
 }
@@ -161,8 +163,7 @@ fn debug_test_fn(
     compile_options: CompileOptions,
     run_params: RunParams,
 ) -> TestResult {
-    let compiled_program =
-        compile_test_fn_for_debugging(test, context, package, compile_options, None);
+    let compiled_program = compile_test_fn_for_debugging(test, context, package, compile_options);
 
     let test_status = match compiled_program {
         Ok(compiled_program) => {
@@ -206,12 +207,11 @@ pub(super) fn compile_test_fn_for_debugging(
     context: &mut Context,
     package: &Package,
     compile_options: CompileOptions,
-    expression_with: Option<ExpressionWidth>,
 ) -> Result<CompiledProgram, noirc_driver::CompileError> {
     let compiled_program =
         compile_no_check(context, &compile_options, test_def.function.get_id(), None, false)?;
-    let expression_width = expression_with
-        .unwrap_or(get_target_width(package.expression_width, compile_options.expression_width));
+    let expression_width =
+        get_target_width(package.expression_width, compile_options.expression_width);
     let compiled_program = nargo::ops::transform_program(compiled_program, expression_width);
     Ok(compiled_program)
 }
@@ -416,7 +416,7 @@ fn run_async(
             run_params.pedantic_solving,
             run_params.raw_source_printing,
             run_params.oracle_resolver_url,
-            Some(workspace.root_dir.clone()),
+            workspace.root_dir.clone(),
             package.name.to_string(),
         );
 
@@ -473,7 +473,7 @@ pub(crate) fn debug_program(
     pedantic_solving: bool,
     raw_source_printing: bool,
     foreign_call_resolver_url: Option<String>,
-    root_path: Option<PathBuf>,
+    root_path: PathBuf,
     package_name: String,
 ) -> DebugExecutionResult {
     noir_debugger::run_repl_session(

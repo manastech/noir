@@ -22,7 +22,7 @@ pub fn run_repl_session(
     initial_witness: WitnessMap<FieldElement>,
     raw_source_printing: bool,
     foreign_call_resolver_url: Option<String>,
-    root_path: Option<PathBuf>,
+    root_path: PathBuf,
     package_name: String,
     pedantic_solving: bool,
 ) -> DebugExecutionResult {
@@ -41,7 +41,7 @@ pub fn run_dap_loop<R: Read, W: Write>(
     server: &mut Server<R, W>,
     program: CompiledProgram,
     initial_witness: WitnessMap<FieldElement>,
-    root_path: Option<PathBuf>,
+    root_path: PathBuf,
     package_name: String,
     pedantic_solving: bool,
     foreign_call_resolver_url: Option<String>,

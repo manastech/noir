@@ -555,7 +555,7 @@ pub fn run(
     initial_witness: WitnessMap<FieldElement>,
     raw_source_printing: bool,
     foreign_call_resolver_url: Option<String>,
-    root_path: Option<PathBuf>,
+    root_path: PathBuf,
     package_name: String,
     pedantic_solving: bool,
 ) -> DebugExecutionResult {
@@ -571,7 +571,7 @@ pub fn run(
         PrintOutput::Stdout,
         foreign_call_resolver_url,
         &debugger_artifact,
-        root_path,
+        Some(root_path),
         package_name,
     ));
 
