@@ -1,5 +1,6 @@
 use crate::context::{DebugCommandResult, DebugExecutionResult, DebugLocation, DebugStackFrame};
 use crate::debug::{DebugCommandAPI, DebugCommandAPIResult, Debugger};
+use crate::Project;
 
 use acvm::AcirField;
 use acvm::acir::brillig::BitSize;
@@ -10,7 +11,6 @@ use acvm::brillig_vm::MemoryValue;
 use acvm::brillig_vm::brillig::Opcode as BrilligOpcode;
 use acvm::FieldElement;
 use nargo::{NargoError, PrintOutput};
-use noirc_driver::CompiledProgram;
 
 use crate::foreign_calls::DefaultDebugForeignCallExecutor;
 use noirc_artifacts::debug::DebugArtifact;
@@ -18,7 +18,6 @@ use noirc_artifacts::debug::DebugArtifact;
 use easy_repl::{CommandStatus, Repl, command};
 use noirc_printable_type::PrintableValueDisplay;
 use std::cell::RefCell;
-use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 
@@ -551,28 +550,31 @@ impl<'a> ReplDebugger<'a> {
 }
 
 pub fn run(
-    program: CompiledProgram,
-    initial_witness: WitnessMap<FieldElement>,
+    project: Project,
     raw_source_printing: bool,
     foreign_call_resolver_url: Option<String>,
-    root_path: PathBuf,
-    package_name: String,
     pedantic_solving: bool,
 ) -> DebugExecutionResult {
-    let debugger_circuits = program.program.functions.clone();
-    let circuits = &program.program.functions;
-    let debugger_artifact =
-        DebugArtifact { debug_symbols: program.debug.clone(), file_map: program.file_map.clone() };
-    let debug_artifact = DebugArtifact { debug_symbols: program.debug, file_map: program.file_map };
-    let debugger_unconstrained_functions = program.program.unconstrained_functions.clone();
-    let unconstrained_functions = &program.program.unconstrained_functions;
+    let program = project.compiled_program.program;
+    let debugger_circuits = program.functions.clone();
+    let circuits = &program.functions;
+    let debugger_artifact = DebugArtifact {
+        debug_symbols: project.compiled_program.debug.clone(),
+        file_map: project.compiled_program.file_map.clone(),
+    };
+    let debug_artifact = DebugArtifact {
+        debug_symbols: project.compiled_program.debug,
+        file_map: project.compiled_program.file_map,
+    };
+    let debugger_unconstrained_functions = program.unconstrained_functions.clone();
+    let unconstrained_functions = &program.unconstrained_functions;
 
     let foreign_call_executor = Box::new(DefaultDebugForeignCallExecutor::from_artifact(
         PrintOutput::Stdout,
         foreign_call_resolver_url,
         &debugger_artifact,
-        Some(root_path),
-        package_name,
+        Some(project.root_dir),
+        project.package_name,
     ));
 
     let (command_tx, command_rx) = mpsc::channel::<DebugCommandAPI>();
@@ -581,7 +583,7 @@ pub fn run(
         let debugger = Debugger {
             circuits: debugger_circuits,
             debug_artifact: &debugger_artifact,
-            initial_witness,
+            initial_witness: project.initial_witness,
             unconstrained_functions: debugger_unconstrained_functions,
             pedantic_solving,
         };
