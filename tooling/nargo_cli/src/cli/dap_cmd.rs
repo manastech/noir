@@ -1,6 +1,4 @@
 use acvm::acir::circuit::ExpressionWidth;
-use acvm::acir::native_types::WitnessMap;
-use acvm::FieldElement;
 use clap::Args;
 use dap::errors::ServerError;
 use dap::events::OutputEventBody;
@@ -9,7 +7,7 @@ use nargo::ops::{test_status_program_compile_pass, TestStatus};
 use nargo::package::Package;
 use nargo::workspace::Workspace;
 use nargo_toml::{get_package_manifest, resolve_workspace_from_toml, PackageSelection};
-use noir_debugger::DebugExecutionResult;
+use noir_debugger::{DebugExecutionResult, Project};
 use noirc_abi::input_parser::Format;
 use noirc_abi::Abi;
 use noirc_driver::{CompileOptions, CompiledProgram, NOIR_ARTIFACT_VERSION_STRING};
@@ -17,7 +15,7 @@ use noirc_errors::debug_info::DebugInfo;
 use noirc_frontend::graph::CrateName;
 
 use std::io::{BufReader, BufWriter, Read, Write};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use dap::requests::Command;
 use dap::responses::ResponseBody;
@@ -146,13 +144,7 @@ fn compile_test(
         .map_err(|_| LoadError::Generic("Failed to compile project".into()))?;
     Ok((program, test))
 }
-//TODO: find a better name
-struct Project {
-    program: CompiledProgram,
-    initial_witness: WitnessMap<FieldElement>,
-    root_dir: PathBuf,
-    package_name: String,
-}
+
 fn load_and_compile_project(
     project_folder: &str,
     package: Option<&str>,
@@ -190,7 +182,7 @@ fn load_and_compile_project(
         .map_err(|_| LoadError::Generic("Failed to encode inputs".into()))?;
 
     let project = Project {
-        program: compiled_program,
+        compiled_program,
         initial_witness,
         root_dir: workspace.root_dir.clone(),
         package_name: package.name.to_string(),
@@ -266,15 +258,12 @@ fn loop_uninitialized_dap<R: Read, W: Write>(
                 ) {
                     Ok((project, test)) => {
                         server.respond(req.ack()?)?;
-                        let abi = project.program.abi.clone();
-                        let debug = project.program.debug.clone();
+                        let abi = project.compiled_program.abi.clone();
+                        let debug = project.compiled_program.debug.clone();
 
                         let result = noir_debugger::run_dap_loop(
                             &mut server,
-                            project.program,
-                            project.initial_witness,
-                            project.root_dir,
-                            project.package_name,
+                            project,
                             pedantic_solving,
                             oracle_resolver_url,
                         )?;

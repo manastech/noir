@@ -1,8 +1,6 @@
 use std::collections::BTreeMap;
 use std::io::{Read, Write};
-use std::path::PathBuf;
 
-use acvm::acir::native_types::WitnessMap;
 use acvm::{BlackBoxFunctionSolver, FieldElement};
 use bn254_blackbox_solver::Bn254BlackBoxSolver;
 use nargo::{NargoError, PrintOutput};
@@ -10,6 +8,7 @@ use nargo::{NargoError, PrintOutput};
 use crate::context::{DebugCommandResult, DebugLocation};
 use crate::context::{DebugContext, DebugExecutionResult};
 use crate::foreign_calls::DefaultDebugForeignCallExecutor;
+use crate::Project;
 
 use dap::errors::ServerError;
 use dap::events::StoppedEventBody;
@@ -28,7 +27,6 @@ use dap::types::{
 use noirc_artifacts::debug::DebugArtifact;
 
 use fm::FileId;
-use noirc_driver::CompiledProgram;
 
 type BreakpointId = i64;
 
@@ -63,26 +61,23 @@ impl<'a, R: Read, W: Write, B: BlackBoxFunctionSolver<FieldElement>> DapSession<
     pub fn new(
         server: &'a mut Server<R, W>,
         solver: &'a B,
-        program: &'a CompiledProgram,
+        project: &'a Project,
         debug_artifact: &'a DebugArtifact,
-        initial_witness: WitnessMap<FieldElement>,
-        root_path: PathBuf,
-        package_name: String,
         foreign_call_resolver_url: Option<String>,
     ) -> Self {
         let context = DebugContext::new(
             solver,
-            &program.program.functions,
+            &project.compiled_program.program.functions,
             debug_artifact,
-            initial_witness,
+            project.initial_witness.clone(),
             Box::new(DefaultDebugForeignCallExecutor::from_artifact(
                 PrintOutput::Stdout,
                 foreign_call_resolver_url,
                 debug_artifact,
-                Some(root_path),
-                package_name,
+                Some(project.root_dir.clone()),
+                project.package_name.clone(),
             )),
-            &program.program.unconstrained_functions,
+            &project.compiled_program.program.unconstrained_functions,
         );
         Self {
             server,
@@ -633,27 +628,18 @@ impl<'a, R: Read, W: Write, B: BlackBoxFunctionSolver<FieldElement>> DapSession<
 
 pub fn run_session<R: Read, W: Write>(
     server: &mut Server<R, W>,
-    program: CompiledProgram,
-    initial_witness: WitnessMap<FieldElement>,
-    root_path: PathBuf,
-    package_name: String,
-    pedantic_solver: bool,
+    project: Project,
+    pedantic_solving: bool,
     foreign_call_resolver_url: Option<String>,
 ) -> Result<DebugExecutionResult, ServerError> {
-    let debug_artifact =
-        DebugArtifact { debug_symbols: program.debug.clone(), file_map: program.file_map.clone() };
+    let debug_artifact = DebugArtifact {
+        debug_symbols: project.compiled_program.debug.clone(),
+        file_map: project.compiled_program.file_map.clone(),
+    };
 
-    let solver = Bn254BlackBoxSolver(pedantic_solver);
-    let mut session = DapSession::new(
-        server,
-        &solver,
-        &program,
-        &debug_artifact,
-        initial_witness,
-        root_path,
-        package_name,
-        foreign_call_resolver_url,
-    );
+    let solver = Bn254BlackBoxSolver(pedantic_solving);
+    let mut session =
+        DapSession::new(server, &solver, &project, &debug_artifact, foreign_call_resolver_url);
 
     session.run_loop()?;
     if session.context.is_solved() {

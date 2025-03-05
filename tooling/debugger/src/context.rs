@@ -15,13 +15,14 @@ use fm::FileId;
 use nargo::errors::{execution_error_from, ExecutionError, Location};
 use nargo::NargoError;
 use noirc_artifacts::debug::{DebugArtifact, StackFrame};
-use noirc_driver::DebugFile;
+use noirc_driver::{CompiledProgram, DebugFile};
 
 use noirc_printable_type::{PrintableType, PrintableValue};
 use thiserror::Error;
 
 use std::collections::BTreeMap;
 use std::collections::HashSet;
+use std::path::PathBuf;
 
 /// A Noir program is composed by
 /// `n` ACIR circuits
@@ -270,6 +271,15 @@ pub enum DebugExecutionResult {
     Solved(WitnessStack<FieldElement>),
     Incomplete,
     Error(NargoError<FieldElement>),
+}
+
+//TODO: find a better name
+#[derive(Debug, Clone)]
+pub struct Project {
+    pub compiled_program: CompiledProgram,
+    pub initial_witness: WitnessMap<FieldElement>,
+    pub root_dir: PathBuf,
+    pub package_name: String,
 }
 
 pub(super) struct DebugContext<'a, B: BlackBoxFunctionSolver<FieldElement>> {

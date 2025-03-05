@@ -16,7 +16,7 @@ use nargo::package::{CrateName, Package};
 use nargo::workspace::Workspace;
 use nargo::{insert_all_files_for_workspace_into_file_manager, parse_all, prepare_package};
 use nargo_toml::PackageSelection;
-use noir_debugger::DebugExecutionResult;
+use noir_debugger::{DebugExecutionResult, Project};
 use noirc_abi::input_parser::Format;
 use noirc_abi::Abi;
 use noirc_driver::{
@@ -410,14 +410,17 @@ fn run_async(
         println!("[{}] Starting debugger", package.name);
         let initial_witness = parse_initial_witness(package, &run_params.prover_name, abi)?;
 
-        let result = debug_program(
-            program,
+        let project = Project {
+            compiled_program: program,
             initial_witness,
+            root_dir: workspace.root_dir.clone(),
+            package_name: package.name.to_string(),
+        };
+        let result = debug_program(
+            project,
             run_params.pedantic_solving,
             run_params.raw_source_printing,
             run_params.oracle_resolver_url,
-            workspace.root_dir.clone(),
-            package.name.to_string(),
         );
 
         if let DebugExecutionResult::Solved(ref witness_stack) = result {
@@ -468,21 +471,15 @@ fn parse_initial_witness(
 }
 
 pub(crate) fn debug_program(
-    compiled_program: CompiledProgram,
-    initial_witness: WitnessMap<FieldElement>,
+    project: Project,
     pedantic_solving: bool,
     raw_source_printing: bool,
     foreign_call_resolver_url: Option<String>,
-    root_path: PathBuf,
-    package_name: String,
 ) -> DebugExecutionResult {
     noir_debugger::run_repl_session(
-        compiled_program,
-        initial_witness,
+        project,
         raw_source_printing,
         foreign_call_resolver_url,
-        root_path,
-        package_name,
         pedantic_solving,
     )
 }
