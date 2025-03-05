@@ -1,4 +1,6 @@
-use crate::context::{DebugCommandResult, DebugExecutionResult, DebugLocation, DebugStackFrame};
+use crate::context::{
+    DebugCommandResult, DebugExecutionResult, DebugLocation, DebugStackFrame, RunParams,
+};
 use crate::debug::{DebugCommandAPI, DebugCommandAPIResult, Debugger};
 use crate::Project;
 
@@ -549,12 +551,7 @@ impl<'a> ReplDebugger<'a> {
     }
 }
 
-pub fn run(
-    project: Project,
-    raw_source_printing: bool,
-    foreign_call_resolver_url: Option<String>,
-    pedantic_solving: bool,
-) -> DebugExecutionResult {
+pub fn run(project: Project, run_params: RunParams) -> DebugExecutionResult {
     let program = project.compiled_program.program;
     let debugger_circuits = program.functions.clone();
     let circuits = &program.functions;
@@ -571,7 +568,7 @@ pub fn run(
 
     let foreign_call_executor = Box::new(DefaultDebugForeignCallExecutor::from_artifact(
         PrintOutput::Stdout,
-        foreign_call_resolver_url,
+        run_params.oracle_resolver_url,
         &debugger_artifact,
         Some(project.root_dir),
         project.package_name,
@@ -585,7 +582,7 @@ pub fn run(
             debug_artifact: &debugger_artifact,
             initial_witness: project.initial_witness,
             unconstrained_functions: debugger_unconstrained_functions,
-            pedantic_solving,
+            pedantic_solving: run_params.pedantic_solving,
         };
         debugger.start_debugging(command_rx, result_tx, foreign_call_executor);
     });
@@ -594,7 +591,7 @@ pub fn run(
         circuits,
         &debug_artifact,
         unconstrained_functions,
-        raw_source_printing,
+        run_params.raw_source_printing,
         command_tx,
         result_rx,
     ));

@@ -5,7 +5,7 @@ use acvm::{BlackBoxFunctionSolver, FieldElement};
 use bn254_blackbox_solver::Bn254BlackBoxSolver;
 use nargo::{NargoError, PrintOutput};
 
-use crate::context::{DebugCommandResult, DebugLocation};
+use crate::context::{DebugCommandResult, DebugLocation, RunParams};
 use crate::context::{DebugContext, DebugExecutionResult};
 use crate::foreign_calls::DefaultDebugForeignCallExecutor;
 use crate::Project;
@@ -629,17 +629,16 @@ impl<'a, R: Read, W: Write, B: BlackBoxFunctionSolver<FieldElement>> DapSession<
 pub fn run_session<R: Read, W: Write>(
     server: &mut Server<R, W>,
     project: Project,
-    pedantic_solving: bool,
-    foreign_call_resolver_url: Option<String>,
+    run_params: RunParams,
 ) -> Result<DebugExecutionResult, ServerError> {
     let debug_artifact = DebugArtifact {
         debug_symbols: project.compiled_program.debug.clone(),
         file_map: project.compiled_program.file_map.clone(),
     };
 
-    let solver = Bn254BlackBoxSolver(pedantic_solving);
+    let solver = Bn254BlackBoxSolver(run_params.pedantic_solving);
     let mut session =
-        DapSession::new(server, &solver, &project, &debug_artifact, foreign_call_resolver_url);
+        DapSession::new(server, &solver, &project, &debug_artifact, run_params.oracle_resolver_url);
 
     session.run_loop()?;
     if session.context.is_solved() {

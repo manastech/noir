@@ -282,6 +282,14 @@ pub struct Project {
     pub package_name: String,
 }
 
+#[derive(Debug, Clone)]
+
+pub struct RunParams {
+    pub pedantic_solving: bool,
+    pub raw_source_printing: bool,
+    pub oracle_resolver_url: Option<String>,
+}
+
 pub(super) struct DebugContext<'a, B: BlackBoxFunctionSolver<FieldElement>> {
     pub(crate) acvm: ACVM<'a, FieldElement, B>,
     current_circuit_id: u32,

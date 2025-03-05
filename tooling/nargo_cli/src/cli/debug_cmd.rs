@@ -18,7 +18,7 @@ use nargo::{insert_all_files_for_workspace_into_file_manager, parse_all, prepare
 use nargo_toml::PackageSelection;
 use noir_artifact_cli::fs::inputs::read_inputs_from_file;
 use noir_artifact_cli::fs::witness::save_witness_to_dir;
-use noir_debugger::{DebugExecutionResult, Project};
+use noir_debugger::{DebugExecutionResult, Project, RunParams};
 use noirc_abi::Abi;
 use noirc_driver::{
     CompileOptions, CompiledProgram, compile_no_check, file_manager_with_stdlib,
@@ -75,16 +75,11 @@ pub(crate) struct DebugCommand {
     oracle_resolver: Option<String>,
 }
 
-struct RunParams<'a> {
+// TODO: find a better name
+struct PackageParams<'a> {
     prover_name: String,
     witness_name: Option<String>,
     target_dir: &'a Path,
-    // FIXME: perhaps this doesn't belong here
-    // since it is for configuring the Bn254BlackBoxSolver
-    // TODO: we should probably add the foreign call config in the same place
-    pedantic_solving: bool,
-    raw_source_printing: bool,
-    oracle_resolver_url: Option<String>,
 }
 
 impl WorkspaceCommand for DebugCommand {
@@ -106,10 +101,12 @@ pub(crate) fn run(args: DebugCommand, workspace: Workspace) -> Result<(), CliErr
     let acir_mode = args.acir_mode;
     let skip_instrumentation = args.skip_instrumentation.unwrap_or(acir_mode);
 
-    let run_params = RunParams {
+    let package_params = PackageParams {
         prover_name: args.prover_name,
         witness_name: args.witness_name,
         target_dir: &workspace.target_directory_path(),
+    };
+    let run_params = RunParams {
         pedantic_solving: args.compile_options.pedantic_solving,
         raw_source_printing: args.raw_source_printing.unwrap_or(false),
         oracle_resolver_url: args.oracle_resolver,
@@ -128,9 +125,9 @@ pub(crate) fn run(args: DebugCommand, workspace: Workspace) -> Result<(), CliErr
         compile_options_for_debugging(acir_mode, skip_instrumentation, None, args.compile_options);
 
     if let Some(test_name) = args.test_name {
-        debug_test(test_name, package, workspace, compile_options, run_params)
+        debug_test(test_name, package, workspace, compile_options, run_params, package_params)
     } else {
-        debug_main(package, workspace, compile_options, run_params)
+        debug_main(package, workspace, compile_options, run_params, package_params)
     }
 }
 
@@ -162,6 +159,7 @@ fn debug_test_fn(
     package: &Package,
     compile_options: CompileOptions,
     run_params: RunParams,
+    package_params: PackageParams,
 ) -> TestResult {
     let compiled_program = compile_test_fn_for_debugging(test, context, package, compile_options);
 
@@ -171,7 +169,8 @@ fn debug_test_fn(
             let debug = compiled_program.debug.clone();
 
             // Run debugger
-            let debug_result = run_async(package, compiled_program, workspace, run_params);
+            let debug_result =
+                run_async(package, compiled_program, workspace, run_params, package_params);
 
             match debug_result {
                 Ok(DebugExecutionResult::Solved(result)) => {
@@ -291,6 +290,7 @@ fn debug_main(
     workspace: Workspace,
     compile_options: CompileOptions,
     run_params: RunParams,
+    package_params: PackageParams,
 ) -> Result<(), CliError> {
     let expression_width =
         get_target_width(package.expression_width, compile_options.expression_width);
@@ -298,7 +298,7 @@ fn debug_main(
     let compiled_program =
         compile_bin_package_for_debugging(&workspace, package, &compile_options, expression_width)?;
 
-    run_async(package, compiled_program, &workspace, run_params)?;
+    run_async(package, compiled_program, &workspace, run_params, package_params)?;
 
     Ok(())
 }
@@ -309,6 +309,7 @@ fn debug_test(
     workspace: Workspace,
     compile_options: CompileOptions,
     run_params: RunParams,
+    package_params: PackageParams,
 ) -> Result<(), CliError> {
     let (file_manager, mut parsed_files) = load_workspace_files(&workspace);
 
@@ -319,8 +320,15 @@ fn debug_test(
 
     let test = get_test_function(crate_id, &context, &test_name)?;
 
-    let test_result =
-        debug_test_fn(&test, &mut context, &workspace, package, compile_options, run_params);
+    let test_result = debug_test_fn(
+        &test,
+        &mut context,
+        &workspace,
+        package,
+        compile_options,
+        run_params,
+        package_params,
+    );
     print_test_result(test_result, &file_manager);
 
     Ok(())
@@ -401,6 +409,7 @@ fn run_async(
     program: CompiledProgram,
     workspace: &Workspace,
     run_params: RunParams,
+    package_params: PackageParams,
 ) -> Result<DebugExecutionResult, CliError> {
     use tokio::runtime::Builder;
     let runtime = Builder::new_current_thread().enable_all().build().unwrap();
@@ -408,7 +417,7 @@ fn run_async(
 
     runtime.block_on(async {
         println!("[{}] Starting debugger", package.name);
-        let initial_witness = parse_initial_witness(package, &run_params.prover_name, abi)?;
+        let initial_witness = parse_initial_witness(package, &package_params.prover_name, abi)?;
 
         let project = Project {
             compiled_program: program,
@@ -416,12 +425,7 @@ fn run_async(
             root_dir: workspace.root_dir.clone(),
             package_name: package.name.to_string(),
         };
-        let result = debug_program(
-            project,
-            run_params.pedantic_solving,
-            run_params.raw_source_printing,
-            run_params.oracle_resolver_url,
-        );
+        let result = noir_debugger::run_repl_session(project, run_params);
 
         if let DebugExecutionResult::Solved(ref witness_stack) = result {
             println!("[{}] Circuit witness successfully solved", package.name);
@@ -429,8 +433,8 @@ fn run_async(
                 &package.name,
                 witness_stack,
                 abi,
-                run_params.witness_name,
-                &run_params.target_dir,
+                package_params.witness_name,
+                package_params.target_dir,
             )?;
         }
 
@@ -469,18 +473,4 @@ fn parse_initial_witness(
         read_inputs_from_file(&package.root_dir.join(prover_name).with_extension("toml"), abi)?;
     let initial_witness = abi.encode(&inputs_map, None)?;
     Ok(initial_witness)
-}
-
-pub(crate) fn debug_program(
-    project: Project,
-    pedantic_solving: bool,
-    raw_source_printing: bool,
-    foreign_call_resolver_url: Option<String>,
-) -> DebugExecutionResult {
-    noir_debugger::run_repl_session(
-        project,
-        raw_source_printing,
-        foreign_call_resolver_url,
-        pedantic_solving,
-    )
 }

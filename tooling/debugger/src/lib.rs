@@ -10,23 +10,19 @@ use std::io::{Read, Write};
 
 use ::dap::errors::ServerError;
 use ::dap::server::Server;
+// TODO: extract these pub structs to its own module
 pub use context::DebugExecutionResult;
 pub use context::Project;
+pub use context::RunParams;
 
-pub fn run_repl_session(
-    project: Project,
-    raw_source_printing: bool,
-    foreign_call_resolver_url: Option<String>,
-    pedantic_solving: bool,
-) -> DebugExecutionResult {
-    repl::run(project, raw_source_printing, foreign_call_resolver_url, pedantic_solving)
+pub fn run_repl_session(project: Project, run_params: RunParams) -> DebugExecutionResult {
+    repl::run(project, run_params)
 }
 
 pub fn run_dap_loop<R: Read, W: Write>(
     server: &mut Server<R, W>,
     project: Project,
-    pedantic_solving: bool,
-    foreign_call_resolver_url: Option<String>,
+    run_params: RunParams,
 ) -> Result<DebugExecutionResult, ServerError> {
-    dap::run_session(server, project, pedantic_solving, foreign_call_resolver_url)
+    dap::run_session(server, project, run_params)
 }

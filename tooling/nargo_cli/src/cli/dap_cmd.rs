@@ -8,7 +8,7 @@ use nargo::package::Package;
 use nargo::workspace::Workspace;
 use nargo_toml::{PackageSelection, get_package_manifest, resolve_workspace_from_toml};
 use noir_artifact_cli::fs::inputs::read_inputs_from_file;
-use noir_debugger::{DebugExecutionResult, Project};
+use noir_debugger::{DebugExecutionResult, Project, RunParams};
 use noirc_abi::Abi;
 use noirc_driver::{CompileOptions, CompiledProgram, NOIR_ARTIFACT_VERSION_STRING};
 use noirc_errors::debug_info::DebugInfo;
@@ -265,8 +265,11 @@ fn loop_uninitialized_dap<R: Read, W: Write>(
                         let result = noir_debugger::run_dap_loop(
                             &mut server,
                             project,
-                            pedantic_solving,
-                            oracle_resolver_url,
+                            RunParams {
+                                oracle_resolver_url,
+                                pedantic_solving,
+                                raw_source_printing: false, // TODO: should we get this from dap args?
+                            },
                         )?;
 
                         if let Some(test) = test {
