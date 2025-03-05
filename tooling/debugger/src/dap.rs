@@ -2,13 +2,13 @@ use std::collections::BTreeMap;
 use std::io::{Read, Write};
 use std::path::PathBuf;
 
-use acvm::acir::native_types::{WitnessMap, WitnessStack};
+use acvm::acir::native_types::WitnessMap;
 use acvm::{BlackBoxFunctionSolver, FieldElement};
 use bn254_blackbox_solver::Bn254BlackBoxSolver;
 use nargo::{NargoError, PrintOutput};
 
-use crate::context::DebugContext;
 use crate::context::{DebugCommandResult, DebugLocation};
+use crate::context::{DebugContext, DebugExecutionResult};
 use crate::foreign_calls::DefaultDebugForeignCallExecutor;
 
 use dap::errors::ServerError;
@@ -639,7 +639,7 @@ pub fn run_session<R: Read, W: Write>(
     package_name: String,
     pedantic_solver: bool,
     foreign_call_resolver_url: Option<String>,
-) -> Result<ExecutionResult, ServerError> {
+) -> Result<DebugExecutionResult, ServerError> {
     let debug_artifact =
         DebugArtifact { debug_symbols: program.debug.clone(), file_map: program.file_map.clone() };
 
@@ -658,18 +658,12 @@ pub fn run_session<R: Read, W: Write>(
     session.run_loop()?;
     if session.context.is_solved() {
         let solved_witness_stack = session.context.finalize();
-        Ok(ExecutionResult::Solved(solved_witness_stack))
+        Ok(DebugExecutionResult::Solved(solved_witness_stack))
     } else {
         match session.last_error() {
             // Expose the last known error
-            Some(error) => Ok(ExecutionResult::Error(error)),
-            None => Ok(ExecutionResult::Incomplete),
+            Some(error) => Ok(DebugExecutionResult::Error(error)),
+            None => Ok(DebugExecutionResult::Incomplete),
         }
     }
-}
-
-pub enum ExecutionResult {
-    Solved(WitnessStack<FieldElement>),
-    Incomplete,
-    Error(NargoError<FieldElement>),
 }

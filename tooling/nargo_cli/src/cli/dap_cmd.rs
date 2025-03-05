@@ -5,11 +5,12 @@ use clap::Args;
 use dap::errors::ServerError;
 use dap::events::OutputEventBody;
 use nargo::constants::PROVER_INPUT_FILE;
-use nargo::ops::{test_status_program_compile_pass, TestStatus};
+use nargo::ops::{TestStatus, test_status_program_compile_pass};
 use nargo::package::Package;
 use nargo::workspace::Workspace;
+use nargo_toml::{PackageSelection, get_package_manifest, resolve_workspace_from_toml};
 use noir_artifact_cli::fs::inputs::read_inputs_from_file;
-use nargo_toml::{get_package_manifest, resolve_workspace_from_toml, PackageSelection};
+use noir_debugger::DebugExecutionResult;
 use noirc_abi::Abi;
 use noirc_driver::{CompileOptions, CompiledProgram, NOIR_ARTIFACT_VERSION_STRING};
 use noirc_errors::debug_info::DebugInfo;
@@ -26,14 +27,13 @@ use serde_json::Value;
 
 use super::check_cmd::check_crate_and_report_errors;
 use super::debug_cmd::{
-    compile_bin_package_for_debugging, compile_options_for_debugging,
+    TestDefinition, compile_bin_package_for_debugging, compile_options_for_debugging,
     compile_test_fn_for_debugging, get_test_function, load_workspace_files,
-    prepare_package_for_debug, TestDefinition,
+    prepare_package_for_debug,
 };
 use crate::errors::CliError;
 
 use noir_debugger::errors::{DapError, LoadError};
-use noir_debugger::ExecutionResult;
 
 #[derive(Debug, Clone, Args)]
 pub(crate) struct DapCommand {
@@ -185,7 +185,6 @@ fn load_and_compile_project(
         }
     }?;
 
-
     let (inputs_map, _) = read_inputs_from_file(
         &package.root_dir.join(prover_name).with_extension("toml"),
         &compiled_program.abi,
@@ -310,21 +309,21 @@ fn loop_uninitialized_dap<R: Read, W: Write>(
 
 fn analyze_test_result<R: Read, W: Write>(
     server: &mut Server<R, W>,
-    result: ExecutionResult,
+    result: DebugExecutionResult,
     test: TestDefinition,
     abi: Abi,
     debug: Vec<DebugInfo>,
 ) -> Result<(), ServerError> {
     let test_status = match result {
-        ExecutionResult::Solved(result) => {
+        DebugExecutionResult::Solved(result) => {
             test_status_program_compile_pass(&test.function, &abi, &debug, &Ok(result))
         }
         // Test execution failed
-        ExecutionResult::Error(error) => {
+        DebugExecutionResult::Error(error) => {
             test_status_program_compile_pass(&test.function, &abi, &debug, &Err(error))
         }
         // Execution didn't complete
-        ExecutionResult::Incomplete => {
+        DebugExecutionResult::Incomplete => {
             TestStatus::Fail { message: "Execution halted".into(), error_diagnostic: None }
         }
     };

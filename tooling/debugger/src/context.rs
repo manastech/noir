@@ -265,6 +265,13 @@ pub struct ExecutionFrame<'a, B: BlackBoxFunctionSolver<FieldElement>> {
     acvm: ACVM<'a, FieldElement, B>,
 }
 
+#[derive(Debug)]
+pub enum DebugExecutionResult {
+    Solved(WitnessStack<FieldElement>),
+    Incomplete,
+    Error(NargoError<FieldElement>),
+}
+
 pub(super) struct DebugContext<'a, B: BlackBoxFunctionSolver<FieldElement>> {
     pub(crate) acvm: ACVM<'a, FieldElement, B>,
     current_circuit_id: u32,

@@ -1,4 +1,4 @@
-use crate::context::{DebugCommandResult, DebugLocation, DebugStackFrame};
+use crate::context::{DebugCommandResult, DebugExecutionResult, DebugLocation, DebugStackFrame};
 use crate::debug::{DebugCommandAPI, DebugCommandAPIResult, Debugger};
 
 use acvm::AcirField;
@@ -558,7 +558,7 @@ pub fn run(
     root_path: Option<PathBuf>,
     package_name: String,
     pedantic_solving: bool,
-) -> Result<Option<WitnessStack<FieldElement>>, NargoError<FieldElement>> {
+) -> DebugExecutionResult {
     let debugger_circuits = program.program.functions.clone();
     let circuits = &program.program.functions;
     let debugger_artifact =
@@ -791,12 +791,12 @@ pub fn run(
 
     if context.borrow().is_solved() {
         let solved_witness_stack = context.into_inner().finalize();
-        Ok(Some(solved_witness_stack))
+        DebugExecutionResult::Solved(solved_witness_stack)
     } else {
         match context.into_inner().last_error() {
             // Expose the last known error
-            Some(error) => Err(error),
-            None => Ok(None),
+            Some(error) => DebugExecutionResult::Error(error),
+            None => DebugExecutionResult::Incomplete,
         }
     }
 }
