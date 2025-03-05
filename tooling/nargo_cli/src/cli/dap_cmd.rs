@@ -26,6 +26,7 @@ use dap::types::{Capabilities, OutputEventCategory};
 use serde_json::Value;
 
 use super::check_cmd::check_crate_and_report_errors;
+use super::compile_cmd::get_target_width;
 use super::debug_cmd::{
     TestDefinition, compile_bin_package_for_debugging, compile_options_for_debugging,
     compile_test_fn_for_debugging, get_test_function, load_workspace_files,
@@ -115,9 +116,10 @@ fn workspace_not_found_error_msg(project_folder: &str, package: Option<&str>) ->
 fn compile_main(
     workspace: &Workspace,
     package: &Package,
-    expression_width: ExpressionWidth,
     compile_options: &CompileOptions,
 ) -> Result<CompiledProgram, LoadError> {
+    let expression_width =
+        get_target_width(package.expression_width, compile_options.expression_width);
     compile_bin_package_for_debugging(workspace, package, compile_options, expression_width)
         .map_err(|_| LoadError::Generic("Failed to compile project".into()))
 }
@@ -125,7 +127,6 @@ fn compile_main(
 fn compile_test(
     workspace: &Workspace,
     package: &Package,
-    expression_width: ExpressionWidth,
     compile_options: CompileOptions,
     test_name: String,
 ) -> Result<(CompiledProgram, TestDefinition), LoadError> {
@@ -140,29 +141,24 @@ fn compile_test(
     let test = get_test_function(crate_id, &context, &test_name)
         .map_err(|_| LoadError::Generic("Failed to compile project".into()))?;
 
-    let program = compile_test_fn_for_debugging(
-        &test,
-        &mut context,
-        package,
-        compile_options,
-        Some(expression_width),
-    )
-    .map_err(|_| LoadError::Generic("Failed to compile project".into()))?;
+    let program = compile_test_fn_for_debugging(&test, &mut context, package, compile_options)
+        .map_err(|_| LoadError::Generic("Failed to compile project".into()))?;
     Ok((program, test))
 }
-
+//TODO: find a better name
+struct Project {
+    program: CompiledProgram,
+    initial_witness: WitnessMap<FieldElement>,
+    root_dir: PathBuf,
+    package_name: String,
+}
 fn load_and_compile_project(
     project_folder: &str,
     package: Option<&str>,
     prover_name: &str,
-    expression_width: ExpressionWidth,
-    acir_mode: bool,
-    skip_instrumentation: bool,
+    compile_options: CompileOptions,
     test_name: Option<String>,
-) -> Result<
-    (CompiledProgram, WitnessMap<FieldElement>, PathBuf, String, Option<TestDefinition>),
-    LoadError,
-> {
+) -> Result<(Project, Option<TestDefinition>), LoadError> {
     let workspace = find_workspace(project_folder, package)
         .ok_or(LoadError::Generic(workspace_not_found_error_msg(project_folder, package)))?;
     let package = workspace
@@ -170,17 +166,14 @@ fn load_and_compile_project(
         .find(|p| p.is_binary() || p.is_contract())
         .ok_or(LoadError::Generic("No matching binary or contract packages found in workspace. Only these packages can be debugged.".into()))?;
 
-    let compile_options =
-        compile_options_for_debugging(acir_mode, skip_instrumentation, CompileOptions::default());
-
     let (compiled_program, test_def) = match test_name {
         None => {
-            let program = compile_main(&workspace, package, expression_width, &compile_options)?;
+            let program = compile_main(&workspace, package, &compile_options)?;
             Ok((program, None))
         }
         Some(test_name) => {
             let (program, test_def) =
-                compile_test(&workspace, package, expression_width, compile_options, test_name)?;
+                compile_test(&workspace, package, compile_options, test_name)?;
             Ok((program, Some(test_def)))
         }
     }?;
@@ -197,13 +190,13 @@ fn load_and_compile_project(
         .encode(&inputs_map, None)
         .map_err(|_| LoadError::Generic("Failed to encode inputs".into()))?;
 
-    Ok((
-        compiled_program,
+    let project = Project {
+        program: compiled_program,
         initial_witness,
-        workspace.root_dir.clone(),
-        package.name.to_string(),
-        test_def,
-    ))
+        root_dir: workspace.root_dir.clone(),
+        package_name: package.name.to_string(),
+    };
+    Ok((project, test_def))
 }
 
 fn loop_uninitialized_dap<R: Read, W: Write>(
@@ -258,31 +251,36 @@ fn loop_uninitialized_dap<R: Read, W: Write>(
                 eprintln!("Package: {}", package.unwrap_or("(default)"));
                 eprintln!("Prover name: {}", prover_name);
 
+                let compile_options = compile_options_for_debugging(
+                    generate_acir,
+                    skip_instrumentation,
+                    Some(expression_width),
+                    CompileOptions::default(),
+                );
+
                 match load_and_compile_project(
                     project_folder,
                     package,
                     prover_name,
-                    expression_width,
-                    generate_acir,
-                    skip_instrumentation,
+                    compile_options,
                     test_name,
                 ) {
-                    Ok((compiled_program, initial_witness, root_path, package_name, test_def)) => {
+                    Ok((project, test)) => {
                         server.respond(req.ack()?)?;
-                        let abi = compiled_program.abi.clone();
-                        let debug = compiled_program.debug.clone();
+                        let abi = project.program.abi.clone();
+                        let debug = project.program.debug.clone();
 
                         let result = noir_debugger::run_dap_loop(
                             &mut server,
-                            compiled_program,
-                            initial_witness,
-                            Some(root_path),
-                            package_name.clone(),
+                            project.program,
+                            project.initial_witness,
+                            project.root_dir,
+                            project.package_name,
                             pedantic_solving,
                             oracle_resolver_url,
                         )?;
 
-                        if let Some(test) = test_def {
+                        if let Some(test) = test {
                             analyze_test_result(&mut server, result, test, abi, debug)?;
                         }
                         break;
@@ -362,13 +360,18 @@ fn run_preflight_check(
     let test_name = args.preflight_test_name;
     let prover_name = args.preflight_prover_name.as_deref().unwrap_or(PROVER_INPUT_FILE);
 
+    let compile_options: CompileOptions = compile_options_for_debugging(
+        args.preflight_generate_acir,
+        args.preflight_skip_instrumentation,
+        Some(expression_width),
+        CompileOptions::default(),
+    );
+
     let _ = load_and_compile_project(
         project_folder.as_str(),
         package,
         prover_name,
-        expression_width,
-        args.preflight_generate_acir,
-        args.preflight_skip_instrumentation,
+        compile_options,
         test_name,
     )?;
 
