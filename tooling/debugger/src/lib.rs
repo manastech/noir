@@ -11,11 +11,10 @@ use std::path::PathBuf;
 
 use ::dap::errors::ServerError;
 use ::dap::server::Server;
-use acvm::acir::native_types::{WitnessMap, WitnessStack};
+use acvm::acir::native_types::WitnessMap;
 use acvm::FieldElement;
+pub use context::DebugExecutionResult;
 
-pub use dap::ExecutionResult;
-use nargo::NargoError;
 use noirc_driver::CompiledProgram;
 
 pub fn run_repl_session(
@@ -26,7 +25,7 @@ pub fn run_repl_session(
     root_path: Option<PathBuf>,
     package_name: String,
     pedantic_solving: bool,
-) -> Result<Option<WitnessStack<FieldElement>>, NargoError<FieldElement>> {
+) -> DebugExecutionResult {
     repl::run(
         program,
         initial_witness,
@@ -46,7 +45,7 @@ pub fn run_dap_loop<R: Read, W: Write>(
     package_name: String,
     pedantic_solving: bool,
     foreign_call_resolver_url: Option<String>,
-) -> Result<ExecutionResult, ServerError> {
+) -> Result<DebugExecutionResult, ServerError> {
     dap::run_session(
         server,
         program,

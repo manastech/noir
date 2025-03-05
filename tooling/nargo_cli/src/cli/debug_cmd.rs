@@ -14,11 +14,10 @@ use nargo::ops::{
 };
 use nargo::package::{CrateName, Package};
 use nargo::workspace::Workspace;
-use nargo::{
-    insert_all_files_for_workspace_into_file_manager, parse_all, prepare_package, NargoError,
-};
+use nargo::{insert_all_files_for_workspace_into_file_manager, parse_all, prepare_package};
 use nargo_toml::PackageSelection;
-use noirc_abi::input_parser::{Format, InputValue};
+use noir_debugger::DebugExecutionResult;
+use noirc_abi::input_parser::Format;
 use noirc_abi::Abi;
 use noirc_driver::{
     compile_no_check, file_manager_with_stdlib, link_to_debug_crate, CompileOptions,
@@ -174,14 +173,16 @@ fn debug_test_fn(
             let debug_result = run_async(package, compiled_program, workspace, run_params);
 
             match debug_result {
-                Ok(result) => {
+                Ok(DebugExecutionResult::Solved(result)) => {
                     test_status_program_compile_pass(&test.function, &abi, &debug, &Ok(result))
                 }
-                // Test execution failed
-                Err(CliError::NargoError(error)) => {
+                Ok(DebugExecutionResult::Error(error)) => {
                     test_status_program_compile_pass(&test.function, &abi, &debug, &Err(error))
                 }
-                // Other errors
+                Ok(DebugExecutionResult::Incomplete) => TestStatus::Fail {
+                    message: "Debugger halted. Incomplete execution".to_string(),
+                    error_diagnostic: None,
+                },
                 Err(error) => TestStatus::Fail {
                     message: format!("Debugger failed: {error}"),
                     error_diagnostic: None,
@@ -297,7 +298,9 @@ fn debug_main(
     let compiled_program =
         compile_bin_package_for_debugging(&workspace, package, &compile_options, expression_width)?;
 
-    run_async(package, compiled_program, &workspace, run_params).map(|_| ())
+    run_async(package, compiled_program, &workspace, run_params)?;
+
+    Ok(())
 }
 
 fn debug_test(
@@ -393,67 +396,64 @@ pub(super) fn prepare_package_for_debug<'a>(
     (context, crate_id)
 }
 
-// FIXME: find a better name
-type ExecutionResult = (Option<InputValue>, WitnessStack<FieldElement>);
-
 fn run_async(
     package: &Package,
     program: CompiledProgram,
     workspace: &Workspace,
     run_params: RunParams,
-) -> Result<WitnessStack<FieldElement>, CliError> {
+) -> Result<DebugExecutionResult, CliError> {
     use tokio::runtime::Builder;
     let runtime = Builder::new_current_thread().enable_all().build().unwrap();
+    let abi = &program.abi.clone();
 
     runtime.block_on(async {
         println!("[{}] Starting debugger", package.name);
-        let (return_value, witness_stack) =
-            debug_program_and_decode(program, package, workspace, &run_params)?;
+        let initial_witness = parse_initial_witness(package, &run_params.prover_name, abi)?;
 
-        let witness_stack_result = witness_stack.clone();
-        println!("[{}] Circuit witness successfully solved", package.name);
+        let result = debug_program(
+            program,
+            initial_witness,
+            run_params.pedantic_solving,
+            run_params.raw_source_printing,
+            run_params.oracle_resolver_url,
+            Some(workspace.root_dir.clone()),
+            package.name.to_string(),
+        );
 
-        if let Some(return_value) = return_value {
-            println!("[{}] Circuit output: {return_value:?}", package.name);
+        if let DebugExecutionResult::Solved(ref witness_stack) = result {
+            println!("[{}] Circuit witness successfully solved", package.name);
+            decode_and_save_program_witness(
+                &package.name,
+                witness_stack,
+                abi,
+                run_params.witness_name,
+                run_params.target_dir,
+            )?;
         }
 
-        if let Some(witness_name) = run_params.witness_name {
-            let witness_path =
-                save_witness_to_dir(witness_stack, &witness_name, run_params.target_dir)?;
-            println!("[{}] Witness saved to {}", package.name, witness_path.display());
-        }
-        Ok(witness_stack_result)
+        Ok(result)
     })
 }
 
-fn debug_program_and_decode(
-    program: CompiledProgram,
-    package: &Package,
-    workspace: &Workspace,
-    run_params: &RunParams,
-) -> Result<ExecutionResult, CliError> {
-    let program_abi = program.abi.clone();
-    let initial_witness = parse_initial_witness(package, &run_params.prover_name, &program.abi)?;
-    let witness_stack = debug_program(
-        program,
-        initial_witness,
-        run_params.pedantic_solving,
-        run_params.raw_source_printing,
-        run_params.oracle_resolver_url.clone(),
-        Some(workspace.root_dir.clone()),
-        package.name.to_string(),
-    )?;
-    match witness_stack {
-        Some(witness_stack) => {
-            let main_witness = &witness_stack
-                .peek()
-                .expect("Should have at least one witness on the stack")
-                .witness;
-            let (_, return_value) = program_abi.decode(main_witness)?;
-            Ok((return_value, witness_stack))
-        }
-        None => Err(CliError::ExecutionHalted),
+fn decode_and_save_program_witness(
+    package_name: &CrateName,
+    witness_stack: &WitnessStack<FieldElement>,
+    abi: &Abi,
+    target_witness_name: Option<String>,
+    target_dir: PathBuf,
+) -> Result<(), CliError> {
+    let main_witness =
+        &witness_stack.peek().expect("Should have at least one witness on the stack").witness;
+
+    if let (_, Some(return_value)) = abi.decode(main_witness)? {
+        println!("[{}] Circuit output: {return_value:?}", package_name);
     }
+
+    if let Some(witness_name) = target_witness_name {
+        let witness_path = save_witness_to_dir(witness_stack.clone(), &witness_name, target_dir)?;
+        println!("[{}] Witness saved to {}", package_name, witness_path.display());
+    }
+    Ok(())
 }
 
 fn parse_initial_witness(
@@ -475,7 +475,7 @@ pub(crate) fn debug_program(
     foreign_call_resolver_url: Option<String>,
     root_path: Option<PathBuf>,
     package_name: String,
-) -> Result<Option<WitnessStack<FieldElement>>, NargoError<FieldElement>> {
+) -> DebugExecutionResult {
     noir_debugger::run_repl_session(
         compiled_program,
         initial_witness,

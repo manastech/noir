@@ -74,7 +74,4 @@ pub(crate) enum CliError {
 
     #[error("Missing return witnesses; expected {expected:?}")]
     MissingReturn { expected: AbiReturnType },
-
-    #[error("Execution halted")]
-    ExecutionHalted,
 }
