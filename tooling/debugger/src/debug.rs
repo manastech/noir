@@ -65,19 +65,19 @@ pub(super) enum DebugCommandAPI {
     Cont,
 }
 
-pub struct Debugger<'a> {
+pub struct AsyncDebugger<'a> {
     pub circuits: Vec<Circuit<FieldElement>>,
     pub debug_artifact: &'a DebugArtifact,
     pub initial_witness: WitnessMap<FieldElement>,
     pub unconstrained_functions: Vec<BrilligBytecode<FieldElement>>,
     pub pedantic_solving: bool,
+    pub command_rx: Receiver<DebugCommandAPI>,
+    pub result_tx: Sender<DebugCommandAPIResult>,
 }
 
-impl<'a> Debugger<'a> {
+impl<'a> AsyncDebugger<'a> {
     pub(super) fn start_debugging(
         &self,
-        command_rx: Receiver<DebugCommandAPI>,
-        result_tx: Sender<DebugCommandAPIResult>,
         foreign_call_executor: Box<dyn DebugForeignCallExecutor + 'a>,
     ) {
         let blackbox_solver = Bn254BlackBoxSolver(self.pedantic_solving);
@@ -93,7 +93,7 @@ impl<'a> Debugger<'a> {
         println!("Debugger ready for receiving messages..");
         loop {
             // recv blocks until it receives message
-            if let Ok(received) = command_rx.recv() {
+            if let Ok(received) = self.command_rx.recv() {
                 let result = match received {
                     DebugCommandAPI::GetCurrentDebugLocation => {
                         DebugCommandAPIResult::DebugLocation(context.get_current_debug_location())
@@ -178,22 +178,17 @@ impl<'a> Debugger<'a> {
                     }
                     DebugCommandAPI::Finalize => {
                         let witness_stack = context.finalize();
-                        let _ = result_tx.send(DebugCommandAPIResult::WitnessStack(witness_stack));
-                        // We need to stop the 'event loop' since `finalize` consumes the context
-                        drop(result_tx);
-                        drop(command_rx);
+                        let _ =
+                            self.result_tx.send(DebugCommandAPIResult::WitnessStack(witness_stack));
                         break;
                     }
                 };
-                let Ok(()) = result_tx.send(result) else {
-                    drop(result_tx);
-                    drop(command_rx);
+                let Ok(()) = self.result_tx.send(result) else {
+                    println!("Downstream channel closed. Terminating debugger");
                     break;
                 };
             } else {
                 println!("Upstream channel closed. Terminating debugger");
-                drop(result_tx);
-                drop(command_rx);
                 break;
             }
         }

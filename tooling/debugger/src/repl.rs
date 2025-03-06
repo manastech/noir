@@ -1,7 +1,7 @@
 use crate::context::{
     DebugCommandResult, DebugExecutionResult, DebugLocation, DebugStackFrame, RunParams,
 };
-use crate::debug::{DebugCommandAPI, DebugCommandAPIResult, Debugger};
+use crate::debug::{AsyncDebugger, DebugCommandAPI, DebugCommandAPIResult};
 use crate::Project;
 
 use acvm::AcirField;
@@ -60,7 +60,7 @@ impl<'a> ReplDebugger<'a> {
         command_sender: Sender<DebugCommandAPI>,
         result_receiver: Receiver<DebugCommandAPIResult>,
     ) -> Self {
-        let last_result = DebugCommandResult::Ok; // TODO: handle circuit with no opcodes
+        let last_result = DebugCommandResult::Ok;
 
         Self {
             command_sender,
@@ -70,6 +70,13 @@ impl<'a> ReplDebugger<'a> {
             last_result,
             unconstrained_functions,
             raw_source_printing,
+        }
+    }
+
+    fn initialize(&mut self) {
+        // handle circuit with no opcodes
+        if self.get_current_debug_location().is_none() {
+            self.last_result = DebugCommandResult::Done
         }
     }
 
@@ -577,14 +584,16 @@ pub fn run(project: Project, run_params: RunParams) -> DebugExecutionResult {
     let (command_tx, command_rx) = mpsc::channel::<DebugCommandAPI>();
     let (result_tx, result_rx) = mpsc::channel::<DebugCommandAPIResult>();
     thread::spawn(move || {
-        let debugger = Debugger {
+        let debugger = AsyncDebugger {
             circuits: debugger_circuits,
             debug_artifact: &debugger_artifact,
             initial_witness: project.initial_witness,
             unconstrained_functions: debugger_unconstrained_functions,
             pedantic_solving: run_params.pedantic_solving,
+            command_rx,
+            result_tx,
         };
-        debugger.start_debugging(command_rx, result_tx, foreign_call_executor);
+        debugger.start_debugging(foreign_call_executor);
     });
 
     let context = RefCell::new(ReplDebugger::new(
@@ -597,6 +606,7 @@ pub fn run(project: Project, run_params: RunParams) -> DebugExecutionResult {
     ));
     let ref_context = &context;
 
+    ref_context.borrow_mut().initialize();
     ref_context.borrow().show_current_vm_status();
 
     let mut repl = Repl::builder()
