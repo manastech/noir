@@ -180,7 +180,7 @@ fn debug_test_fn(
                     test_status_program_compile_pass(&test.function, &abi, &debug, &Err(error))
                 }
                 Ok(DebugExecutionResult::Incomplete) => TestStatus::Fail {
-                    message: "Debugger halted. Incomplete execution".to_string(),
+                    message: "Incomplete execution. Debugger halted".to_string(),
                     error_diagnostic: None,
                 },
                 Err(error) => TestStatus::Fail {
