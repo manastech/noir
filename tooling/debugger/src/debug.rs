@@ -1,11 +1,11 @@
 use acvm::{
+    FieldElement,
     acir::{
         brillig::BitSize,
-        circuit::{brillig::BrilligBytecode, Circuit, Opcode},
+        circuit::{Circuit, Opcode, brillig::BrilligBytecode},
         native_types::{Witness, WitnessMap, WitnessStack},
     },
     brillig_vm::MemoryValue,
-    FieldElement,
 };
 use bn254_blackbox_solver::Bn254BlackBoxSolver;
 use nargo::errors::Location;

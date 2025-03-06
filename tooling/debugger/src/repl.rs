@@ -1,17 +1,17 @@
+use crate::Project;
 use crate::context::{
     DebugCommandResult, DebugExecutionResult, DebugLocation, DebugStackFrame, RunParams,
 };
 use crate::debug::{AsyncDebugger, DebugCommandAPI, DebugCommandAPIResult};
-use crate::Project;
 
 use acvm::AcirField;
+use acvm::FieldElement;
 use acvm::acir::brillig::BitSize;
 use acvm::acir::circuit::brillig::{BrilligBytecode, BrilligFunctionId};
 use acvm::acir::circuit::{Circuit, Opcode, OpcodeLocation};
 use acvm::acir::native_types::{Witness, WitnessMap, WitnessStack};
 use acvm::brillig_vm::MemoryValue;
 use acvm::brillig_vm::brillig::Opcode as BrilligOpcode;
-use acvm::FieldElement;
 use nargo::{NargoError, PrintOutput};
 
 use crate::foreign_calls::DefaultDebugForeignCallExecutor;

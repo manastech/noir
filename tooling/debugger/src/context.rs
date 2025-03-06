@@ -12,8 +12,8 @@ use acvm::{BlackBoxFunctionSolver, FieldElement};
 
 use codespan_reporting::files::{Files, SimpleFile};
 use fm::FileId;
-use nargo::errors::{execution_error_from, ExecutionError, Location};
 use nargo::NargoError;
+use nargo::errors::{ExecutionError, Location, execution_error_from};
 use noirc_artifacts::debug::{DebugArtifact, StackFrame};
 use noirc_driver::{CompiledProgram, DebugFile};
 

@@ -5,10 +5,10 @@ use acvm::{BlackBoxFunctionSolver, FieldElement};
 use bn254_blackbox_solver::Bn254BlackBoxSolver;
 use nargo::{NargoError, PrintOutput};
 
+use crate::Project;
 use crate::context::{DebugCommandResult, DebugLocation, RunParams};
 use crate::context::{DebugContext, DebugExecutionResult};
 use crate::foreign_calls::DefaultDebugForeignCallExecutor;
-use crate::Project;
 
 use dap::errors::ServerError;
 use dap::events::StoppedEventBody;
