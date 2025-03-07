@@ -1,6 +1,5 @@
 mod context;
 mod dap;
-mod debug;
 pub mod errors;
 mod foreign_calls;
 mod repl;
