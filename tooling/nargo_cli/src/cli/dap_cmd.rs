@@ -2,8 +2,17 @@ use acvm::acir::circuit::ExpressionWidth;
 use clap::Args;
 use dap::errors::ServerError;
 use dap::events::OutputEventBody;
+use dap::requests::Command;
+use dap::responses::ResponseBody;
+use dap::server::Server;
+use dap::types::{Capabilities, OutputEventCategory};
 use nargo::constants::PROVER_INPUT_FILE;
-use nargo::ops::{TestStatus, test_status_program_compile_pass};
+use nargo::ops::debug::{
+    TestDefinition, compile_bin_package_for_debugging, compile_options_for_debugging,
+    compile_test_fn_for_debugging, get_test_function_for_debug, load_workspace_files,
+    prepare_package_for_debug,
+};
+use nargo::ops::{TestStatus, check_crate_and_report_errors, test_status_program_compile_pass};
 use nargo::package::Package;
 use nargo::workspace::Workspace;
 use nargo_toml::{PackageSelection, get_package_manifest, resolve_workspace_from_toml};
@@ -13,23 +22,11 @@ use noirc_abi::Abi;
 use noirc_driver::{CompileOptions, CompiledProgram, NOIR_ARTIFACT_VERSION_STRING};
 use noirc_errors::debug_info::DebugInfo;
 use noirc_frontend::graph::CrateName;
-
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::Path;
 
-use dap::requests::Command;
-use dap::responses::ResponseBody;
-use dap::server::Server;
-use dap::types::{Capabilities, OutputEventCategory};
 use serde_json::Value;
 
-use super::check_cmd::check_crate_and_report_errors;
-use super::compile_cmd::get_target_width;
-use super::debug_cmd::{
-    TestDefinition, compile_bin_package_for_debugging, compile_options_for_debugging,
-    compile_test_fn_for_debugging, get_test_function, load_workspace_files,
-    prepare_package_for_debug,
-};
 use crate::errors::CliError;
 
 use noir_debugger::errors::{DapError, LoadError};
@@ -116,9 +113,7 @@ fn compile_main(
     package: &Package,
     compile_options: &CompileOptions,
 ) -> Result<CompiledProgram, LoadError> {
-    let expression_width =
-        get_target_width(package.expression_width, compile_options.expression_width);
-    compile_bin_package_for_debugging(workspace, package, compile_options, expression_width)
+    compile_bin_package_for_debugging(workspace, package, compile_options)
         .map_err(|_| LoadError::Generic("Failed to compile project".into()))
 }
 
@@ -136,7 +131,7 @@ fn compile_test(
     check_crate_and_report_errors(&mut context, crate_id, &compile_options)
         .map_err(|_| LoadError::Generic("Failed to compile project".into()))?;
 
-    let test = get_test_function(crate_id, &context, &test_name)
+    let test = get_test_function_for_debug(crate_id, &context, &test_name)
         .map_err(|_| LoadError::Generic("Failed to compile project".into()))?;
 
     let program = compile_test_fn_for_debugging(&test, &mut context, package, compile_options)
