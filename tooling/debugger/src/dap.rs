@@ -87,7 +87,7 @@ impl<'a, R: Read, W: Write, B: BlackBoxFunctionSolver<FieldElement>> DapSession<
             next_breakpoint_id: 1,
             instruction_breakpoints: vec![],
             source_breakpoints: BTreeMap::new(),
-            last_result: DebugCommandResult::Ok, // TODO: handle circuits with no opcodes ?
+            last_result: DebugCommandResult::Ok,
         }
     }
 

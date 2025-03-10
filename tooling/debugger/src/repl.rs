@@ -64,11 +64,10 @@ pub(super) enum DebugCommandAPI {
 pub(super) enum DebuggerStatus {
     Idle,
     Busy,
-    Error,
     Final(DebugExecutionResult),
 }
 
-pub struct AsyncDebugger<'a> {
+pub struct AsyncReplDebugger<'a> {
     circuits: Vec<Circuit<FieldElement>>,
     debug_artifact: &'a DebugArtifact,
     initial_witness: WitnessMap<FieldElement>,
@@ -80,7 +79,7 @@ pub struct AsyncDebugger<'a> {
     raw_source_printing: bool,
 }
 
-impl<'a> AsyncDebugger<'a> {
+impl<'a> AsyncReplDebugger<'a> {
     pub fn new(
         compiled_program: &CompiledProgram,
         debug_artifact: &'a DebugArtifact,
@@ -108,15 +107,6 @@ impl<'a> AsyncDebugger<'a> {
     fn send_status(&mut self, status: DebuggerStatus) {
         self.status_sender.send(status).expect("Downstream channel closed")
     }
-    fn mark_busy(&mut self) {
-        self.send_status(DebuggerStatus::Busy)
-    }
-    fn mark_idle(&mut self) {
-        self.send_status(DebuggerStatus::Idle)
-    }
-    fn mark_error(&mut self) {
-        self.send_status(DebuggerStatus::Error)
-    }
 
     pub(super) fn start_debugging(
         mut self,
@@ -140,31 +130,26 @@ impl<'a> AsyncDebugger<'a> {
         }
 
         println!("Debugger ready for receiving messages..");
-        self.mark_idle();
         loop {
+            self.send_status(DebuggerStatus::Idle);
             // recv blocks until it receives message
             if let Ok(received) = self.command_receiver.recv() {
-                self.mark_busy();
+                self.send_status(DebuggerStatus::Busy);
                 match received {
                     DebugCommandAPI::AddBreakpoint(debug_location) => {
                         Self::add_breakpoint_at(&mut context, debug_location);
-                        self.mark_idle();
                     }
                     DebugCommandAPI::DeleteBreakpoint(debug_location) => {
                         Self::delete_breakpoint_at(&mut context, debug_location);
-                        self.mark_idle();
                     }
                     DebugCommandAPI::Restart => {
                         self.restart_session(&mut context);
-                        self.mark_idle();
                     }
                     DebugCommandAPI::WriteBrilligMemory(index, value, bit_size) => {
                         Self::write_brillig_memory(&mut context, index, value, bit_size);
-                        self.mark_idle();
                     }
                     DebugCommandAPI::UpdateWitness(index, value) => {
                         Self::update_witness(&mut context, index, value);
-                        self.mark_idle();
                     }
                     DebugCommandAPI::StepAcirOpcode => {
                         self.handle_step(&mut context, |context| context.step_acir_opcode());
@@ -187,35 +172,27 @@ impl<'a> AsyncDebugger<'a> {
                     }),
                     DebugCommandAPI::AddBreakpointAtLine(line_number) => {
                         Self::add_breakpoint_at_line(&mut context, line_number);
-                        self.mark_idle();
                     }
                     DebugCommandAPI::ShowVariables => {
                         Self::show_variables(&mut context);
-                        self.mark_idle();
                     }
                     DebugCommandAPI::ShowWitnessMap => {
                         Self::show_witness_map(&mut context);
-                        self.mark_idle();
                     }
                     DebugCommandAPI::ShowWitness(index) => {
                         Self::show_witness(&mut context, index);
-                        self.mark_idle();
                     }
                     DebugCommandAPI::ShowBrilligMemory => {
                         Self::show_brillig_memory(&mut context);
-                        self.mark_idle();
                     }
                     DebugCommandAPI::ShowCurrentCallStack => {
                         self.show_current_call_stack(&mut context);
-                        self.mark_idle();
                     }
                     DebugCommandAPI::ShowOpcodes => {
                         self.show_opcodes(&mut context);
-                        self.mark_idle();
                     }
                     DebugCommandAPI::ShowCurrentVmStatus => {
                         self.show_current_vm_status(&mut context);
-                        self.mark_idle();
                     }
                     DebugCommandAPI::Terminate => {
                         self.terminate(context);
@@ -427,16 +404,13 @@ impl<'a> AsyncDebugger<'a> {
         match &self.last_result {
             DebugCommandResult::Done => {
                 println!("Execution finished");
-                self.mark_idle();
             }
-            DebugCommandResult::Ok => self.mark_idle(),
+            DebugCommandResult::Ok => (),
             DebugCommandResult::BreakpointReached(location) => {
                 println!("Stopped at breakpoint in opcode {}", location);
-                self.mark_idle();
             }
             DebugCommandResult::Error(error) => {
                 println!("ERROR: {}", error);
-                self.mark_error();
             }
         }
     }
@@ -461,8 +435,6 @@ impl<'a> AsyncDebugger<'a> {
             let result = step(context);
             self.show_current_vm_status(context);
             self.handle_result(result);
-        } else {
-            self.mark_idle();
         }
     }
 
@@ -578,9 +550,9 @@ impl DebugCommander {
     }
 
     fn call_debugger(&self, command: DebugCommandAPI) {
-        self.when_not_busy(
-            || self.command_sender.send(command).expect("Could not communicate with debugger"), //{
-        )
+        self.when_not_busy(|| {
+            self.command_sender.send(command).expect("Could not communicate with debugger")
+        })
     }
 
     fn get_final_result(&self) -> DebugExecutionResult {
@@ -682,7 +654,7 @@ pub fn run(project: Project, run_params: RunParams) -> DebugExecutionResult {
     let (command_tx, command_rx) = mpsc::channel::<DebugCommandAPI>();
     let (status_tx, status_rx) = mpsc::channel::<DebuggerStatus>();
     thread::spawn(move || {
-        let debugger = AsyncDebugger::new(
+        let debugger = AsyncReplDebugger::new(
             &project.compiled_program,
             &debug_artifact,
             project.initial_witness,
