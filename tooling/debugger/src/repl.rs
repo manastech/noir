@@ -1,4 +1,4 @@
-use crate::Project;
+use crate::DebugProject;
 use crate::context::{
     DebugCommandResult, DebugContext, DebugExecutionResult, DebugLocation, DebugStackFrame,
     RunParams,
@@ -637,7 +637,7 @@ impl DebugCommander {
     }
 }
 
-pub fn run(project: Project, run_params: RunParams) -> DebugExecutionResult {
+pub fn run(project: DebugProject, run_params: RunParams) -> DebugExecutionResult {
     let debug_artifact = DebugArtifact {
         debug_symbols: project.compiled_program.debug.clone(),
         file_map: project.compiled_program.file_map.clone(),
@@ -660,7 +660,7 @@ pub fn run(project: Project, run_params: RunParams) -> DebugExecutionResult {
             project.initial_witness,
             status_tx,
             command_rx,
-            run_params.raw_source_printing,
+            run_params.raw_source_printing.unwrap_or(false),
             run_params.pedantic_solving,
         );
         debugger.start_debugging(foreign_call_executor);

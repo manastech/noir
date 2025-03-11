@@ -20,6 +20,7 @@ pub struct RPCForeignCallExecutor {
     /// JSON RPC client to resolve foreign calls
     external_resolver: HttpClient,
     /// External resolver target. We are keeping it to be able to restart httpClient if necessary
+    /// see noir-lang/noir#7463
     target_url: String,
     /// Root path to the program or workspace in execution.
     root_path: Option<PathBuf>,
@@ -130,12 +131,10 @@ where
 
         match result {
             Ok(parsed_response) => Ok(parsed_response),
-            // TODO: This is a workaround
+            // TODO: This is a workaround for noir-lang/noir#7463
             // The client is losing connection with the server and it's not being able to manage it
             // so we are re-creating the HttpClient when it happens
-            Err(jsonrpsee::core::ClientError::Transport(err)) => {
-                println!("We got a transport error: {err:?}");
-                println!("Restarting http client...");
+            Err(jsonrpsee::core::ClientError::Transport(_)) => {
                 self.external_resolver = build_http_client(&self.target_url);
                 let parsed_response = self.send_foreign_call(foreign_call)?;
                 Ok(parsed_response)

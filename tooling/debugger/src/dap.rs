@@ -5,7 +5,7 @@ use acvm::{BlackBoxFunctionSolver, FieldElement};
 use bn254_blackbox_solver::Bn254BlackBoxSolver;
 use nargo::{NargoError, PrintOutput};
 
-use crate::Project;
+use crate::DebugProject;
 use crate::context::{DebugCommandResult, DebugLocation, RunParams};
 use crate::context::{DebugContext, DebugExecutionResult};
 use crate::foreign_calls::DefaultDebugForeignCallExecutor;
@@ -61,7 +61,7 @@ impl<'a, R: Read, W: Write, B: BlackBoxFunctionSolver<FieldElement>> DapSession<
     pub fn new(
         server: &'a mut Server<R, W>,
         solver: &'a B,
-        project: &'a Project,
+        project: &'a DebugProject,
         debug_artifact: &'a DebugArtifact,
         foreign_call_resolver_url: Option<String>,
     ) -> Self {
@@ -628,7 +628,7 @@ impl<'a, R: Read, W: Write, B: BlackBoxFunctionSolver<FieldElement>> DapSession<
 
 pub fn run_session<R: Read, W: Write>(
     server: &mut Server<R, W>,
-    project: Project,
+    project: DebugProject,
     run_params: RunParams,
 ) -> Result<DebugExecutionResult, ServerError> {
     let debug_artifact = DebugArtifact {

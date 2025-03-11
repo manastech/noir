@@ -20,7 +20,7 @@ use nargo::workspace::Workspace;
 use nargo_toml::PackageSelection;
 use noir_artifact_cli::fs::inputs::read_inputs_from_file;
 use noir_artifact_cli::fs::witness::save_witness_to_dir;
-use noir_debugger::{DebugExecutionResult, Project, RunParams};
+use noir_debugger::{DebugExecutionResult, DebugProject, RunParams};
 use noirc_abi::Abi;
 use noirc_driver::{CompileOptions, CompiledProgram};
 use noirc_frontend::hir::Context;
@@ -102,7 +102,7 @@ pub(crate) fn run(args: DebugCommand, workspace: Workspace) -> Result<(), CliErr
     };
     let run_params = RunParams {
         pedantic_solving: args.compile_options.pedantic_solving,
-        raw_source_printing: args.raw_source_printing.unwrap_or(false),
+        raw_source_printing: args.raw_source_printing,
         oracle_resolver_url: args.oracle_resolver,
     };
     let workspace_clone = workspace.clone();
@@ -243,7 +243,7 @@ fn run_async(
         println!("[{}] Starting debugger", package.name);
         let initial_witness = parse_initial_witness(package, &package_params.prover_name, abi)?;
 
-        let project = Project {
+        let project = DebugProject {
             compiled_program: program,
             initial_witness,
             root_dir: workspace.root_dir.clone(),

@@ -273,9 +273,8 @@ pub enum DebugExecutionResult {
     Error(NargoError<FieldElement>),
 }
 
-//TODO: find a better name
 #[derive(Debug, Clone)]
-pub struct Project {
+pub struct DebugProject {
     pub compiled_program: CompiledProgram,
     pub initial_witness: WitnessMap<FieldElement>,
     pub root_dir: PathBuf,
@@ -285,8 +284,14 @@ pub struct Project {
 #[derive(Debug, Clone)]
 
 pub struct RunParams {
+    /// Use pedantic ACVM solving
     pub pedantic_solving: bool,
-    pub raw_source_printing: bool,
+
+    /// Option for configuring the source_code_printer
+    /// This option only applies for the Repl interface
+    pub raw_source_printing: Option<bool>,
+
+    /// JSON RPC url to solve oracle calls
     pub oracle_resolver_url: Option<String>,
 }
 

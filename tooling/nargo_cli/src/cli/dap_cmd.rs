@@ -17,7 +17,7 @@ use nargo::package::Package;
 use nargo::workspace::Workspace;
 use nargo_toml::{PackageSelection, get_package_manifest, resolve_workspace_from_toml};
 use noir_artifact_cli::fs::inputs::read_inputs_from_file;
-use noir_debugger::{DebugExecutionResult, Project, RunParams};
+use noir_debugger::{DebugExecutionResult, DebugProject, RunParams};
 use noirc_abi::Abi;
 use noirc_driver::{CompileOptions, CompiledProgram, NOIR_ARTIFACT_VERSION_STRING};
 use noirc_errors::debug_info::DebugInfo;
@@ -145,7 +145,7 @@ fn load_and_compile_project(
     prover_name: &str,
     compile_options: CompileOptions,
     test_name: Option<String>,
-) -> Result<(Project, Option<TestDefinition>), LoadError> {
+) -> Result<(DebugProject, Option<TestDefinition>), LoadError> {
     let workspace = find_workspace(project_folder, package)
         .ok_or(LoadError::Generic(workspace_not_found_error_msg(project_folder, package)))?;
     let package = workspace
@@ -177,7 +177,7 @@ fn load_and_compile_project(
         .encode(&inputs_map, None)
         .map_err(|_| LoadError::Generic("Failed to encode inputs".into()))?;
 
-    let project = Project {
+    let project = DebugProject {
         compiled_program,
         initial_witness,
         root_dir: workspace.root_dir.clone(),
@@ -263,7 +263,7 @@ fn loop_uninitialized_dap<R: Read, W: Write>(
                             RunParams {
                                 oracle_resolver_url,
                                 pedantic_solving,
-                                raw_source_printing: false, // TODO: should we get this from dap args?
+                                raw_source_printing: None,
                             },
                         )?;
 
