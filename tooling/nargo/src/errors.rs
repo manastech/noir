@@ -243,6 +243,8 @@ pub fn try_to_diagnose_runtime_error(
     Some(error.with_call_stack(source_locations))
 }
 
+/// Map the given OpcodeResolutionError to the corresponding ExecutionError
+/// In case of resulting in an ExecutionError::AssertionFailedThis it propagates the payload
 pub fn execution_error_from<F: AcirField>(
     error: OpcodeResolutionError<F>,
     call_stack: &[ResolvedOpcodeLocation],
