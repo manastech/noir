@@ -2,11 +2,7 @@ use crate::ast::PathSegment;
 use crate::parse_program;
 use crate::parser::{ParsedModule, ParsedSubModule};
 use crate::signed_field::SignedField;
-use crate::{
-    ast,
-    ast::Path,
-    parser::{Item, ItemKind},
-};
+use crate::{ast, ast::Path, parser::ItemKind};
 use fm::FileId;
 use noirc_errors::debug_info::{DebugFnId, DebugFunction};
 use noirc_errors::{Location, Span};
@@ -60,25 +56,18 @@ impl Default for DebugInstrumenter {
 impl DebugInstrumenter {
     pub fn instrument_module(&mut self, module: &mut ParsedModule, file: FileId) {
         module.items.iter_mut().for_each(|item| {
-            if let Item { kind: ItemKind::Function(f), .. } = item {
-                self.walk_fn(&mut f.def);
-            }
-            if let Item {
-                kind:
-                    ItemKind::Submodules(ParsedSubModule {
-                        is_contract: true,
-                        contents: contract_module @ ParsedModule { .. },
-                        ..
-                    }),
-                ..
-            } = item
-            {
-                contract_module.items.iter_mut().for_each(|item| {
-                    if let Item { kind: ItemKind::Function(f), .. } = item {
-                        self.walk_fn(&mut f.def);
-                    }
-                });
-                self.insert_state_set_oracle(contract_module, 8, file);
+            match &mut item.kind {
+                // Instrument top-level functions of a module
+                ItemKind::Function(f) => self.walk_fn(&mut f.def),
+                // Instrument contract module
+                ItemKind::Submodules(ParsedSubModule {
+                    is_contract: true,
+                    contents: contract_module,
+                    ..
+                }) => {
+                    self.instrument_module(contract_module, file);
+                }
+                _ => (),
             }
         });
 
