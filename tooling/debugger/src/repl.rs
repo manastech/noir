@@ -129,7 +129,7 @@ impl<'a> AsyncReplDebugger<'a> {
             self.last_result = DebugCommandResult::Done
         }
 
-        println!("Debugger ready for receiving messages..");
+        println!("Debugger ready to receive messages..");
         loop {
             self.send_status(DebuggerStatus::Idle);
             // recv blocks until it receives message
