@@ -211,8 +211,8 @@ fn debug_test(
 
     check_crate_and_report_errors(&mut context, crate_id, &compile_options)?;
 
-    let test = get_test_function_for_debug(crate_id, &context, &test_name)
-        .map_err(CliError::Generic)?;
+    let test =
+        get_test_function_for_debug(crate_id, &context, &test_name).map_err(CliError::Generic)?;
 
     let test_result = debug_test_fn(
         &test,
