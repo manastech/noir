@@ -355,7 +355,7 @@ impl<'a, B: BlackBoxFunctionSolver<FieldElement>> DebugContext<'a, B> {
             circuits,
             unconstrained_functions,
             acir_opcode_addresses,
-            initial_witness: initial_witness.clone(), // keeping it to be able to restart the context by itself
+            initial_witness: initial_witness.clone(), // we keep it so the context can restart itself
             acvm: initialize_acvm(
                 blackbox_solver,
                 circuits,
