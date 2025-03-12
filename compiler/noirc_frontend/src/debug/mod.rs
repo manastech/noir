@@ -73,7 +73,7 @@ impl DebugInstrumenter {
 
         // this part absolutely must happen after ast traversal above
         // so that oracle functions don't get wrapped, resulting in infinite recursion:
-        self.insert_state_set_oracle(module, 8, file);
+        self.insert_state_set_oracle(module, file);
     }
 
     fn insert_var(&mut self, var_name: &str) -> Option<SourceVarId> {
@@ -506,8 +506,8 @@ impl DebugInstrumenter {
         }
     }
 
-    fn insert_state_set_oracle(&self, module: &mut ParsedModule, n: u32, file: FileId) {
-        let member_assigns = (1..=n)
+    fn insert_state_set_oracle(&self, module: &mut ParsedModule, file: FileId) {
+        let member_assigns = (1..=MAX_MEMBER_ASSIGN_DEPTH)
             .map(|i| format!["__debug_member_assign_{i}"])
             .collect::<Vec<String>>()
             .join(",\n");
