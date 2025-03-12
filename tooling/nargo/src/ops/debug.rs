@@ -123,7 +123,7 @@ pub fn compile_options_for_debugging(
     compile_options: CompileOptions,
 ) -> CompileOptions {
     CompileOptions {
-        // Compilation warnings are disabled when 
+        // Compilation warnings are disabled when
         // compiling for debugging
         //
         // For instrumenting the program the debugger
