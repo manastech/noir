@@ -128,11 +128,6 @@ impl<'a, R: Read, W: Write, B: BlackBoxFunctionSolver<FieldElement>> DapSession<
                 Command::Disconnect(_) => {
                     eprintln!("INFO: ending debugging session");
                     self.running = false;
-                    // TODO: review deleting this line
-                    // responding ack here makes the server to close connection
-                    // so the dap_cmd then can't use it to send the test_result to the user
-                    //
-                    // self.server.respond(req.ack()?)?;
                     break;
                 }
                 Command::SetBreakpoints(_) => {
@@ -377,22 +372,7 @@ impl<'a, R: Read, W: Write, B: BlackBoxFunctionSolver<FieldElement>> DapSession<
                     hit_breakpoint_ids: Some(breakpoint_ids),
                 }))?;
             }
-            DebugCommandResult::Error(_err) => {
-                // TODO: review:
-                // is it better for the user to have the possibility to restart the debug session and get out of the error
-                // or is it better to finish the session automatically? so the user does not have to manually stop the execution?
-
-                // self.server.send_event(Event::Stopped(StoppedEventBody {
-                //         reason: StoppedEventReason::Exception,
-                //         description: Some("Stopped on exception".into()),
-                //         thread_id: Some(0),
-                //         preserve_focus_hint: Some(false),
-                //         text: Some(format!("{err:#?}")),
-                //         all_threads_stopped: Some(false),
-                //         hit_breakpoint_ids: None,
-                //     }))?;
-                self.server.send_event(Event::Terminated(None))?;
-            }
+            DebugCommandResult::Error(_) => self.server.send_event(Event::Terminated(None))?,
         }
         Ok(())
     }
