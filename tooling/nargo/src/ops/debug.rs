@@ -123,10 +123,14 @@ pub fn compile_options_for_debugging(
     compile_options: CompileOptions,
 ) -> CompileOptions {
     CompileOptions {
-        // for instrumenting the program the debugger
+        // Compilation warnings are disabled when 
+        // compiling for debugging
+        //
+        // For instrumenting the program the debugger
         // will import functions that may not be used,
         // which would generate compilation warnings
         silence_warnings: true,
+        deny_warnings: false,
         instrument_debug: !skip_instrumentation,
         force_brillig: !acir_mode,
         expression_width,
