@@ -61,21 +61,23 @@ Skipping instrumentation causes the debugger to be unable to inspect local varia
 
 _String, optional._
 
-Test name (or substring) of the test function to debug. Is not required for the name to be exact as long as it's unequivocal
-For the debugger to run only one test function should match the name lookup
+Test name (or substring) of the test function to debug. The name is not required to match exactly, as long as it's non-ambiguous.
+For the debugger to run, only one test function should match the name lookup.
+
+ie: if there are two test functions `test_simple_assert` and `test_increment`, setting `--test-name test_` will fail with `'test_' matches with more than one test function`. Instead, setting `--test_name test_simple` is not ambiguous, so the debugger will start debugging the `test_simple_assert` test function.
 
 :::note
-When provided the debugger will debug the matching function instead of the package `main` function.
+When provided, the debugger will debug the matching function instead of the package `main` function.
 :::
 
 #### oracleResolver
 
 _String, optional._
 
-JSON RPC url to solve oracle calls
+JSON RPC URL to solve oracle calls.
 
 :::note
-when running using the `Debug test` codelens, the debugger will set this option with the `TXE_TARGET` environment variable value
+When the debugger is run using the `Debug test` codelens, this option is set from the `TXE_TARGET` environment variable value.
 :::
 
 ## `nargo dap [OPTIONS]`

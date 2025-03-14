@@ -41,7 +41,7 @@ This argument must only match one function. If the given name matches with more 
 :::
 
 :::note
-For debugging aztec-contract tests that interact the TXE, the json rpc server url must be provided by setting the `--oracle-resolver` option
+For debugging aztec-contract tests that interact with the TXE ([see further details here](https://docs.aztec.network/developers/guides/smart_contracts/testing)), a JSON RPC server URL must be provided by setting the `--oracle-resolver` option
 :::
 
 ## REPL commands
