@@ -1,0 +1,2 @@
+test_assert_message_preserved_during_optimization
+test_vec_new_bad
