@@ -37,12 +37,24 @@ pub fn get_test_function_for_debug(
         matchings if matchings.is_empty() => {
             return Err(format!("`{}` does not match with any test function", test_name));
         }
-        matchings if matchings.len() == 1 => {
-            let (name, test_func) = matchings.into_iter().next().unwrap();
-            (name, test_func)
-        }
-        _ => {
-            return Err(format!("`{}` matches with more than one test function", test_name));
+        matchings if matchings.len() == 1 => matchings.into_iter().next().unwrap(),
+        matchings => {
+            let exact_match_op = matchings
+                .into_iter()
+                .filter(|(name, _)| name.split("::").last() == Some(test_name))
+                .collect::<Vec<(String, TestFunction)>>();
+            // There can be multiple matches but only one that matches exactly
+            // this would be the case of tests names that englobe others
+            // i.e.:
+            //  - test_something
+            //  - unconstrained_test_something
+            // in this case, looking up "test_something" throws two matchings
+            // but only one matches exact
+            if exact_match_op.len() == 1 {
+                exact_match_op.into_iter().next().unwrap()
+            } else {
+                return Err(format!("`{}` matches with more than one test function", test_name));
+            }
         }
     };
 
