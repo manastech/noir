@@ -97,7 +97,7 @@ mod tests {
             spawn_bash(Some(timeout_seconds * 1000)).expect("Could not start bash session");
 
         let test_program_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../test_programs/execution_success/regression_7195");
+            .join("../../test_programs/execution_success/regression_7195").canonicalize().unwrap();
         let test_program_dir = test_program_path.display();
 
         // Start debugger and test that it loads for the given program.
@@ -156,12 +156,14 @@ mod tests {
                 .exp_string(">")
                 .expect("Failed while waiting for debugger to step through program.");
 
+            let at_filename = format!("At {test_program_dir}");
             while let Some(expected_line) = expected_lines.pop_front() {
                 let line = loop {
                     let read_line = dbg_session.read_line().unwrap();
                     if !(read_line.contains("> next")
-                        || read_line.starts_with("At ")
-                        || read_line.starts_with("..."))
+                        || read_line.contains("At opcode")
+                        || read_line.contains(at_filename.as_str())
+                        || read_line.contains("..."))
                     {
                         break read_line;
                     }

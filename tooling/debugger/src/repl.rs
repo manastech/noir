@@ -550,9 +550,8 @@ impl DebugCommander {
     }
 
     fn call_debugger(&self, command: DebugCommandAPI) {
-        self.when_not_busy(|| {
-            self.command_sender.send(command).expect("Could not communicate with debugger")
-        })
+        self.command_sender.send(command).expect("Could not communicate with debugger");
+        self.wait_for_idle();
     }
 
     fn get_final_result(&self) -> DebugExecutionResult {
@@ -564,15 +563,12 @@ impl DebugCommander {
         }
     }
 
-    fn when_not_busy<F>(&self, callback: F)
-    where
-        F: FnOnce(),
+    fn wait_for_idle(&self)
     {
         loop {
             let status = self.debugger_status();
-            let DebuggerStatus::Busy = status else { break };
+            if let DebuggerStatus::Idle = status { break };
         }
-        callback();
     }
 
     pub fn step_acir_opcode(&self) {
