@@ -117,7 +117,6 @@ fn generate_debugger_test_tests(test_file: &mut File, test_data_dir: &Path) {
                 .split("(")
                 .next()
                 .unwrap();
-            println!("cargo::warning=Generating test for {test_name:?}");
 
             let ignored = ignored_tests.contains(test_name);
 
