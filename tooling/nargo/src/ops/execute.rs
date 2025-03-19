@@ -1,5 +1,5 @@
 use acvm::acir::circuit::brillig::BrilligBytecode;
-use acvm::acir::circuit::{OpcodeLocation, Program, ResolvedOpcodeLocation};
+use acvm::acir::circuit::{OpcodeLocation, Program};
 use acvm::acir::native_types::WitnessStack;
 use acvm::pwg::{
     ACVM, ACVMStatus, ErrorLocation, OpcodeNotSolvable, OpcodeResolutionError, ProfilingSamples,
@@ -8,7 +8,7 @@ use acvm::{AcirField, BlackBoxFunctionSolver};
 use acvm::{acir::circuit::Circuit, acir::native_types::WitnessMap};
 
 use crate::NargoError;
-use crate::errors::{ExecutionError, execution_error_from};
+use crate::errors::{ExecutionError, execution_error_from, ResolvedOpcodeLocation};
 use crate::foreign_calls::ForeignCallExecutor;
 
 struct ProgramExecutor<'a, F: AcirField, B: BlackBoxFunctionSolver<F>, E: ForeignCallExecutor<F>> {

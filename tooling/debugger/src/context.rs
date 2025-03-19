@@ -1,7 +1,7 @@
 use crate::foreign_calls::DebugForeignCallExecutor;
 use acvm::acir::brillig::BitSize;
 use acvm::acir::circuit::brillig::{BrilligBytecode, BrilligFunctionId};
-use acvm::acir::circuit::{Circuit, Opcode, OpcodeLocation, ResolvedOpcodeLocation};
+use acvm::acir::circuit::{Circuit, Opcode, OpcodeLocation};
 use acvm::acir::native_types::{Witness, WitnessMap, WitnessStack};
 use acvm::brillig_vm::MemoryValue;
 use acvm::pwg::{
@@ -13,7 +13,7 @@ use acvm::{BlackBoxFunctionSolver, FieldElement};
 use codespan_reporting::files::{Files, SimpleFile};
 use fm::FileId;
 use nargo::NargoError;
-use nargo::errors::{ExecutionError, Location, execution_error_from};
+use nargo::errors::{execution_error_from, ExecutionError, Location, ResolvedOpcodeLocation};
 use noirc_artifacts::debug::{DebugArtifact, StackFrame};
 use noirc_driver::{CompiledProgram, DebugFile};
 

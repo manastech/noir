@@ -20,6 +20,7 @@ use crate::errors::CliError;
 
 use super::{LockType, PackageOptions, WorkspaceCommand};
 
+#[allow(rustdoc::broken_intra_doc_links)]
 /// Exports functions marked with #[export] attribute
 #[derive(Debug, Clone, Args)]
 pub(crate) struct ExportCommand {
