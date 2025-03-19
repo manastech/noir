@@ -563,11 +563,12 @@ impl DebugCommander {
         }
     }
 
-    fn wait_for_idle(&self)
-    {
+    fn wait_for_idle(&self) {
         loop {
             let status = self.debugger_status();
-            if let DebuggerStatus::Idle = status { break };
+            if let DebuggerStatus::Idle = status {
+                break;
+            };
         }
     }
 

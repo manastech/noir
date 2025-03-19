@@ -97,7 +97,9 @@ mod tests {
             spawn_bash(Some(timeout_seconds * 1000)).expect("Could not start bash session");
 
         let test_program_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../test_programs/execution_success/regression_7195").canonicalize().unwrap();
+            .join("../../test_programs/execution_success/regression_7195")
+            .canonicalize()
+            .unwrap();
         let test_program_dir = test_program_path.display();
 
         // Start debugger and test that it loads for the given program.
