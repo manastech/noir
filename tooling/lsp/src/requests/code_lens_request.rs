@@ -12,6 +12,7 @@ use crate::{
 };
 
 const ARROW: &str = "▶\u{fe0e}";
+const GEAR: &str = "⚙";
 const TEST_COMMAND: &str = "nargo.test";
 const TEST_CODELENS_TITLE: &str = "Run Test";
 const COMPILE_COMMAND: &str = "nargo.compile";
@@ -129,7 +130,7 @@ pub(crate) fn collect_lenses_for_package(
         lenses.push(test_lens);
 
         let debug_test_command = Command {
-            title: DEBUG_TEST_CODELENS_TITLE.to_string(),
+            title: format!("{GEAR} {DEBUG_TEST_CODELENS_TITLE}"),
             command: DEBUG_TEST_COMMAND.into(),
             arguments: Some(
                 [
