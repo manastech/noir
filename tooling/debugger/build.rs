@@ -32,7 +32,7 @@ fn main() {
     println!("cargo:rerun-if-changed={}", test_dir.as_os_str().to_str().unwrap());
 
     generate_debugger_tests(&mut test_file, &test_dir);
-    generate_debugger_test_tests(&mut test_file, &test_dir);
+    generate_test_runner_debugger_tests(&mut test_file, &test_dir);
 }
 
 fn generate_debugger_tests(test_file: &mut File, test_data_dir: &Path) {
@@ -73,7 +73,7 @@ fn debug_{test_name}() {{
     }
 }
 
-fn generate_debugger_test_tests(test_file: &mut File, test_data_dir: &Path) {
+fn generate_test_runner_debugger_tests(test_file: &mut File, test_data_dir: &Path) {
     let test_sub_dir = "noir_test_success";
     let test_data_dir = test_data_dir.join(test_sub_dir);
 

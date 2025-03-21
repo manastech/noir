@@ -540,11 +540,11 @@ impl<'a> AsyncReplDebugger<'a> {
     }
 }
 
-struct DebugCommander {
+struct DebugController {
     command_sender: Sender<DebugCommandAPI>,
     status_receiver: Receiver<DebuggerStatus>,
 }
-impl DebugCommander {
+impl DebugController {
     fn debugger_status(&self) -> DebuggerStatus {
         self.status_receiver.recv().expect("Debugger closed connection unexpectedly")
     }
@@ -664,7 +664,7 @@ pub fn run(project: DebugProject, run_params: RunParams) -> DebugExecutionResult
     });
 
     let context =
-        RefCell::new(DebugCommander { command_sender: command_tx, status_receiver: status_rx });
+        RefCell::new(DebugController { command_sender: command_tx, status_receiver: status_rx });
     let ref_context = &context;
 
     ref_context.borrow().show_current_vm_status();
